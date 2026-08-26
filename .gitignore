@@ -1,0 +1,22 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+.agent/
+.DS_Store
+/build/
+**/build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+# Room schemas are part of the database contract and must be versioned.
+!app/schemas/
+!app/schemas/**
+# Never commit credentials or local secret files.
+*.keystore
+*.jks
+*.pem
+*.p12
+secrets.properties
+**/secrets.properties

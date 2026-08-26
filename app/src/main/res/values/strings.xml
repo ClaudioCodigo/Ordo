@@ -1,0 +1,38 @@
+<resources>
+    <string name="app_name">Nexo</string>
+    <string name="tab_hoje">Hoje</string>
+    <string name="tab_agenda">Agenda</string>
+    <string name="tab_ferramentas">Ferramentas</string>
+    <string name="tab_cadastros">Cadastros</string>
+    <string name="tab_mais">Mais</string>
+
+    <string name="hoje_title">Hoje</string>
+    <string name="agenda_title">Agenda</string>
+    <string name="ferramentas_title">Ferramentas</string>
+    <string name="cadastros_title">Cadastros</string>
+    <string name="mais_title">Mais</string>
+
+    <string name="nova_os">Nova OS</string>
+    <string name="diagnostico_bateria">Diagnóstico de Bateria</string>
+    <string name="diagnostico_bateria_desc">Procedimento técnico de verificação de saúde e autonomia.</string>
+    <string name="inicio_diagnostico">Início do Diagnóstico</string>
+    <string name="procedimento_tecnico">Procedimento Técnico</string>
+    <string name="search_hint">Pesquisar...</string>
+    <string name="no_results">Nenhum resultado encontrado.</string>
+    <string name="exportar_importar">Exportar/Importar</string>
+    <string name="url_nextcloud">URL do Servidor Nextcloud</string>
+    <string name="usuario_nextcloud">Usuário</string>
+    <string name="proximo">Próximo</string>
+    <string name="voltar">Voltar</string>
+    <string name="geral">Geral</string>
+    <string name="conta">Conta</string>
+    <string name="relatorios">Relatórios</string>
+    <string name="configuracoes">Configurações</string>
+    <string name="conta_nextcloud">Conta Nextcloud</string>
+
+    <string name="clientes_unidades">Clientes/Unidades</string>
+    <string name="locais">Locais</string>
+    <string name="equipamentos">Equipamentos</string>
+    <string name="nobreaks">Nobreaks</string>
+    <string name="baterias">Baterias</string>
+</resources>

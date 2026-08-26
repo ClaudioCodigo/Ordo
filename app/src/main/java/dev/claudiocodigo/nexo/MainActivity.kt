@@ -1,0 +1,195 @@
+package dev.claudiocodigo.nexo
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Today
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
+import androidx.navigation3.runtime.NavEntry
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
+import androidx.navigation3.ui.NavDisplay
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import dagger.hilt.android.AndroidEntryPoint
+import dev.claudiocodigo.nexo.ui.navigation.Route
+import dev.claudiocodigo.nexo.ui.screens.agenda.AgendaScreen
+import dev.claudiocodigo.nexo.ui.screens.cadastros.CadastrosScreen
+import dev.claudiocodigo.nexo.ui.screens.cadastros.ListaCadastroScreen
+import dev.claudiocodigo.nexo.ui.screens.detalhes.DetalhesScreen
+import dev.claudiocodigo.nexo.ui.screens.ferramentas.DiagnosticoBateriaScreen
+import dev.claudiocodigo.nexo.ui.screens.ferramentas.FerramentasScreen
+import dev.claudiocodigo.nexo.ui.screens.hoje.HojeScreen
+import dev.claudiocodigo.nexo.ui.screens.mais.MaisScreen
+import dev.claudiocodigo.nexo.ui.screens.nova.NovaOSScreen
+import dev.claudiocodigo.nexo.ui.theme.NexoTheme
+import java.util.UUID
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            NexoTheme {
+                MainScreen()
+            }
+        }
+    }
+}
+
+@Composable
+fun MainScreen() {
+    val tabs = listOf(Route.Hoje, Route.Agenda, Route.Ferramentas, Route.Cadastros, Route.Mais)
+    var selectedTab by remember { mutableStateOf<Route>(Route.Hoje) }
+
+    val backStacks = remember {
+        tabs.associateWith { mutableStateListOf<Route>(it) }
+    }
+
+    val currentBackStack = backStacks[selectedTab]!!
+    val currentRoute = currentBackStack.lastOrNull() ?: selectedTab
+
+    val hideBottomBar = currentRoute is Route.DetalhesOS ||
+                        currentRoute is Route.NovaOS ||
+                        currentRoute is Route.DiagnosticoBateria ||
+                        currentRoute is Route.ListaCadastro
+
+    Scaffold(
+        modifier = Modifier.testTag("screen_main"),
+        bottomBar = {
+            if (!hideBottomBar) {
+                NexoNavigationBar(
+                    currentRoute = selectedTab,
+                    onTabSelected = { selectedTab = it }
+                )
+            }
+        }
+    ) { innerPadding ->
+        NavDisplay(
+            backStack = currentBackStack,
+            onBack = { if (currentBackStack.size > 1) currentBackStack.removeAt(currentBackStack.size - 1) },
+            modifier = Modifier.padding(innerPadding),
+            entryDecorators = listOf(
+                rememberSaveableStateHolderNavEntryDecorator(),
+                rememberViewModelStoreNavEntryDecorator()
+            ),
+            entryProvider = { key ->
+                when (key) {
+                    is Route.Hoje -> NavEntry(key) {
+                        HojeScreen(
+                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) },
+                            onNavigateToNewOS = {
+                                currentBackStack.add(Route.NovaOS(UUID.randomUUID().toString()))
+                            }
+                        )
+                    }
+                    is Route.Agenda -> NavEntry(key) {
+                        AgendaScreen(
+                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) }
+                        )
+                    }
+                    is Route.Ferramentas -> NavEntry(key) {
+                        FerramentasScreen(
+                            onNavigateToDiagnostico = { currentBackStack.add(Route.DiagnosticoBateria) }
+                        )
+                    }
+                    is Route.Cadastros -> NavEntry(key) {
+                        CadastrosScreen(
+                            onNavigateToLista = { tipo -> currentBackStack.add(Route.ListaCadastro(tipo)) }
+                        )
+                    }
+                    is Route.Mais -> NavEntry(key) { MaisScreen() }
+                    is Route.DetalhesOS -> NavEntry(key) {
+                        DetalhesScreen(
+                            osId = key.id,
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.NovaOS -> NavEntry(key) {
+                        NovaOSScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onSaved = { id ->
+                                currentBackStack.removeAt(currentBackStack.size - 1)
+                                currentBackStack.add(Route.DetalhesOS(id))
+                            }
+                        )
+                    }
+                    is Route.DiagnosticoBateria -> NavEntry(key) {
+                        DiagnosticoBateriaScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.ListaCadastro -> NavEntry(key) {
+                        ListaCadastroScreen(
+                            tipo = key.tipo,
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun NexoNavigationBar(
+    currentRoute: Route,
+    onTabSelected: (Route) -> Unit
+) {
+    NavigationBar(modifier = Modifier.testTag("bottom_navigation")) {
+        NavigationBarItem(
+            selected = currentRoute is Route.Hoje,
+            onClick = { onTabSelected(Route.Hoje) },
+            modifier = Modifier.testTag("tab_hoje"),
+            icon = { Icon(Icons.Rounded.Today, contentDescription = null) },
+            label = { Text(stringResource(R.string.tab_hoje)) }
+        )
+        NavigationBarItem(
+            selected = currentRoute is Route.Agenda,
+            onClick = { onTabSelected(Route.Agenda) },
+            modifier = Modifier.testTag("tab_agenda"),
+            icon = { Icon(Icons.Rounded.CalendarToday, contentDescription = null) },
+            label = { Text(stringResource(R.string.tab_agenda)) }
+        )
+        NavigationBarItem(
+            selected = currentRoute is Route.Ferramentas,
+            onClick = { onTabSelected(Route.Ferramentas) },
+            modifier = Modifier.testTag("tab_ferramentas"),
+            icon = { Icon(Icons.Rounded.Build, contentDescription = null) },
+            label = { Text(stringResource(R.string.tab_ferramentas)) }
+        )
+        NavigationBarItem(
+            selected = currentRoute is Route.Cadastros,
+            onClick = { onTabSelected(Route.Cadastros) },
+            modifier = Modifier.testTag("tab_cadastros"),
+            icon = { Icon(Icons.AutoMirrored.Rounded.List, contentDescription = null) },
+            label = { Text(stringResource(R.string.tab_cadastros)) }
+        )
+        NavigationBarItem(
+            selected = currentRoute is Route.Mais,
+            onClick = { onTabSelected(Route.Mais) },
+            modifier = Modifier.testTag("tab_mais"),
+            icon = { Icon(Icons.Rounded.MoreHoriz, contentDescription = null) },
+            label = { Text(stringResource(R.string.tab_mais)) }
+        )
+    }
+}
