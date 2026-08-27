@@ -1,22 +1,32 @@
 ---
 gsd_state_version: 1.0
-status: unknown
-stopped_at: Phase 3 context gathered
-last_updated: "2026-08-27T16:30:54.407Z"
-state_head: eecaf99c0fd17213ea8ca6cb8b725532bf8e1a3b
+status: ready_to_execute
+stopped_at: Phase 3 planned; ready for execution
+last_updated: "2026-08-27T17:32:09.711Z"
+state_head: d5d76e73cb580aa9ef8bd919022554ad1405d1d0
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 2
-  completed_plans: 2
-  percent: 0
+  total_phases: 7
+  completed_phases: 1
+  total_plans: 9
+  completed_plans: 0
+  percent: 14
+current_phase_name: Ordens de Servico e publicacao controlada
 ---
 
 # Estado do projeto
 
+## Current Position
+
+Current Phase: 3 — Ordens de Servico e publicacao controlada
+Current Plan: Not started
+Status: Ready to execute
+Total Plans in Phase: 9
+Completed Plans in Phase: 0
+Last Activity: Phase 3 planning verified on 2026-08-27
+
 - Data da ultima atualizacao: 27/08/2026.
-- Estado: Fase 2 — implementação técnica verificada; UAT real de conexão, descoberta, seleção de agenda e leitura de eventos aprovada no aparelho.
-- Proxima acao: concluir os cenarios residuais da UAT (revogacao da senha e confirmacao externa de zero escrita) e iniciar o planejamento da Fase 3.
+- Estado: Fase 3 planejada em 9 planos; estrutura, requisitos, decisoes e cobertura CalDAV verificadas.
+- Proxima acao: executar a Fase 3 por ondas, iniciando pelo plano 03-01 e seu tracer local antes de habilitar escrita remota.
 - Fase 1 concluida e preservada: cinco abas, Room como fonte local, rascunhos nao perdidos.
 - Fase 2: QR/manual, Keystore AES-GCM (sem backup), descoberta e selecao de agenda, importacao somente leitura, sincronizacao WorkManager com rede, sync-collection RFC 6578 com fallback href+ETag e eventos remotos em Hoje/Agenda com detalhe somente leitura.
 - Migracao Room 1→2 explicita; schema 2 exportado; rascunhos da Fase 1 sobrevivem.
@@ -31,6 +41,7 @@ progress:
 - Restam na UAT a revogacao da senha temporaria e a confirmacao externa de que nenhum recurso remoto foi modificado.
 - Conflitos, publicacao remota, notificacoes, inventario completo e relatorios ainda nao foram implementados (Fases 3-7).
 - O diagnostico de bateria continua demonstrativo e nao deve aprovar ou condenar baterias nesta fase.
+- Aviso de granularidade dos planos 03-01..03-08 aceito em 27/08/2026: alguns planos tocam 9–14 arquivos, mas permanecem lineares, coesos por responsabilidade e sem colisao de propriedade; todos os validadores estruturais passaram.
 
 ## Decisoes de colaboracao
 
@@ -42,5 +53,5 @@ progress:
 ## Session
 
 **Last session:** 2026-08-27T16:30:54.375Z
-**Stopped at:** Phase 3 context gathered
-**Resume file:** .planning/phases/03-ordens-de-servico-publicacao-controlada/03-CONTEXT.md
+**Stopped at:** Phase 3 planned; ready for execution
+**Resume file:** .planning/phases/03-ordens-de-servico-publicacao-controlada/03-01-PLAN.md

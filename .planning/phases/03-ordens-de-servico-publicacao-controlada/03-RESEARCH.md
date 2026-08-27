@@ -350,22 +350,16 @@ Conflito e falha permanente são estados de domínio já persistidos; retornar r
 | A4 | O servidor real disponibiliza ETag consistente e aceita os condicionais normativos. | Writer | Sem isso, a publicação deve permanecer bloqueada; validar em agenda de teste. |
 | A5 | Um lease persistente é suficiente para recuperar worker interrompido. | Pitfall 7 | Lease curto demais causa concorrência; longo demais atrasa recuperação. Definir e testar com clock injetado. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Ocorrências implícitas de RRULE precisam aparecer já na Fase 3?**
-   - What we know: a fase exige não alterar a série e os exemplos têm RECURRENCE-ID; a Fase 2 não expande recorrências. [VERIFIED: `.planning/STATE.md`]
-   - What's unclear: se a agenda operacional contém instâncias futuras ainda não materializadas pelo servidor.
-   - Recommendation: planejar suporte completo a componentes explícitos agora e inserir um checkpoint de UAT; se houver instância implícita necessária, criar spike de expansão antes do lote de UI.
+1. **Ocorrências implícitas de RRULE precisam aparecer já na Fase 3? — Resolvido**
+   - A Fase 3 suporta somente componentes VEVENT explícitos e `RECURRENCE-ID`; a expansão local de instâncias implícitas de RRULE permanece fora de escopo. A UAT deve detectar e registrar lacunas específicas do servidor para follow-up, sem ampliar silenciosamente a fase nem introduzir um expansor implícito.
 
-2. **O Nextcloud real retorna ETag no PUT e preserva reserialização suficiente para reconciliação?**
-   - What we know: RFC 4791 trata entity tags de recursos de calendário. [CITED: https://www.rfc-editor.org/rfc/rfc4791.html]
-   - What's unclear: comportamento da versão/configuração particular.
-   - Recommendation: teste controlado `[TESTE NEXO]` em sábado/domingo, primeiro create, depois update, depois conflito deliberado.
+2. **O Nextcloud real retorna ETag no PUT e preserva reserialização suficiente para reconciliação? — Resolvido pelo gate de UAT**
+   - A arquitetura segue RFC e reconciliação semântica, não uma suposição de igualdade byte a byte. A UAT controlada de fim de semana é o selo: se o servidor violar o comportamento condicional exigido, a Fase 3 não pode ser marcada como completa e deve preservar o rascunho enfileirado/local.
 
-3. **Qual conjunto de privilégios aparece em eventos convidados?**
-   - What we know: o parser já consulta current-user-privilege-set, mas colapsa os valores. [VERIFIED: `app/src/main/java/dev/claudiocodigo/nexo/data/caldav/CalDavXmlParser.kt:133-139`]
-   - What's unclear: se a coleção compartilhada anuncia write-content/bind e se o recurso individual difere.
-   - Recommendation: preservar privilégios exatos e fazer a checagem final por operação/HTTP.
+3. **Qual conjunto de privilégios aparece em eventos convidados? — Resolvido por autoridade operacional**
+   - Preservar exatamente os privilégios DAV e as propriedades de scheduling. Capability/preflight é apenas consultivo; o PUT condicional real e a resposta `403` são autoritativos. A UAT cobre um evento gravável e um negado; a negação preserva o rascunho e interrompe novas tentativas.
 
 ## Environment Availability
 

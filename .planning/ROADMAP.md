@@ -30,6 +30,35 @@
 2. Editar e publicar uma descricao formatada mediante previa e confirmacao.
 3. Preservar titulo, data, horario, local, cor e propriedades desconhecidas do evento.
 
+**Plans:** 9 plans in 9 sequential waves
+
+**Wave 1**
+- `03-01-PLAN.md` — modelo local estruturado, vínculo idempotente, histórico e migração Room v3.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- `03-02-PLAN.md` — extração/renderização determinística, edição ICS lossless e ocorrências explícitas.
+
+**Wave 3** *(blocked on Waves 1–2 completion)*
+- `03-03-PLAN.md` — writer CalDAV separado, permissões exatas e PUT estritamente condicional.
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- `03-04-PLAN.md` — outbox imutável/idempotente, coordenador, worker e reconciliação.
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- `03-05-PLAN.md` — editor estruturado em seções e prévia completa somente leitura.
+
+**Wave 6** *(blocked on Wave 5 completion)*
+- `03-06-PLAN.md` — início/continuação do atendimento e revisão manual de conflito por campo.
+
+**Wave 7** *(blocked on Wave 6 completion)*
+- `03-07-PLAN.md` — mapeamento configurável de cores e Central de sincronizações.
+
+**Wave 8** *(blocked on Wave 7 completion)*
+- `03-08-PLAN.md` — projeção operacional única nos cartões de Hoje e Agenda.
+
+**Wave 9** *(blocked on Wave 8 completion)*
+- `03-09-PLAN.md` — gates finais de segurança/migração/navegação e UAT controlada no Nextcloud.
+
 ## Fase 4 — Conflitos, sincronizacao e notificacoes
 
 **Objetivo:** implantar autosave, escrita condicional, mesclagem de tres vias, sincronizacao periodica e sinais vermelho/verde.
