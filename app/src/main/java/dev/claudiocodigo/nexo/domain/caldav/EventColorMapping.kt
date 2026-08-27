@@ -2,19 +2,22 @@ package dev.claudiocodigo.nexo.domain.caldav
 
 /**
  * Maps a raw `COLOR` value (RFC 7986 accepts a CSS3 color name or `#RRGGBB`)
- * to Nexo's semantics, per CAL-04:
+ * to Nexo's semantics, per CAL-04 and Wave 7:
  *
- * - green `#008000` -> [EventColor.VALIDADO]
- * - red   `#B22222` -> [EventColor.REQUER_ATENCAO]
- * - anything else (or absent) -> [EventColor.NAO_CLASSIFICADO]
+ * - green/darkolivegreen/#008000/#228B22/#32CD32 -> [EventColor.VALIDADO]
+ * - red/#B22222/#FF0000/#D32F2F -> [EventColor.REQUER_ATENCAO]
+ * - anything else, neutral (#4682B4, #00679E), unmapped (#9370DB) or absent -> [EventColor.NAO_CLASSIFICADO]
  *
- * The app never flips a color to green on its own; it only interprets the
- * signal the technical control put on the server. This is deliberately
- * conservative: only the two documented signals are classified.
+ * Precedence rule: If a color matches both sets, REQUER_ATENCAO takes precedence over VALIDADO.
+ * Raw color string remains untouched and no remote mutation is emitted.
  */
 object ColorClassifier {
 
-    fun classify(raw: String?): EventColor {
+    fun classify(
+        raw: String?,
+        customValidated: Set<String>? = null,
+        customAttention: Set<String>? = null
+    ): EventColor {
         val normalized = raw
             ?.trim()
             ?.lowercase()
@@ -22,13 +25,14 @@ object ColorClassifier {
             ?.uppercase()
             ?: return EventColor.NAO_CLASSIFICADO
 
+        val validatedSet = customValidated ?: InMemoryColorStatePreferences.DEFAULT_VALIDATED_COLORS
+        val attentionSet = customAttention ?: InMemoryColorStatePreferences.DEFAULT_ATTENTION_COLORS
+
+        // Red/Attention takes visual precedence
         return when {
-            normalized in GREEN_VARIANTS -> EventColor.VALIDADO
-            normalized in RED_VARIANTS -> EventColor.REQUER_ATENCAO
+            normalized in attentionSet -> EventColor.REQUER_ATENCAO
+            normalized in validatedSet -> EventColor.VALIDADO
             else -> EventColor.NAO_CLASSIFICADO
         }
     }
 }
-
-private val GREEN_VARIANTS = setOf("008000", "GREEN", "00FF00", "00A000")
-private val RED_VARIANTS = setOf("B22222", "RED", "FF0000", "D32F2F")

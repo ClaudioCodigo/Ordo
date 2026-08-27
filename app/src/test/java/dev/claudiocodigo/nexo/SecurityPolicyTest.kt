@@ -6,19 +6,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Repository-wide security policy guard (Lote 7 / AUT-04, AUT-06).
+ * Repository-wide security policy guard (Lote 7 / AUT-04, AUT-06, Phase 3).
  *
  * Fails if:
- * - the CalDAV/security/worker data layer logs anything (a secret could leak);
+ * - the CalDAV/security/worker/publication data layer logs anything (a secret could leak);
  * - any source file contains a hardcoded `Basic <base64>` Authorization literal;
- * - a hardcoded application-password assignment is present.
+ * - a hardcoded application-password assignment is present;
+ * - CalDAV writer exposes DELETE or unconditional write operations;
+ * - Remote COLOR mutation or writing green is introduced.
  */
 class SecurityPolicyTest {
 
     private val mainSrcDir = File("src/main/java/dev/claudiocodigo/nexo")
 
     private val sensitiveDirs = listOf(
-        "data/caldav", "data/security", "data/worker"
+        "data/caldav", "data/security", "data/worker", "data/publication"
     ).map { File(mainSrcDir, it) }
 
     @Test
@@ -52,6 +54,26 @@ class SecurityPolicyTest {
         val schemaText = File("src/main/java/dev/claudiocodigo/nexo/data/local/NexoDatabaseMigrations.kt").readText()
         assertFalse(schemaText.contains("password"))
         assertFalse(schemaText.contains("Authorization"))
+    }
+
+    @Test
+    fun `caldav write client does not expose delete method`() {
+        val writeClientFile = File(mainSrcDir, "domain/caldav/CalDavWriteClient.kt")
+        if (writeClientFile.exists()) {
+            val nonCommentLines = writeClientFile.readLines().filterNot { it.trim().startsWith("*") || it.trim().startsWith("//") || it.trim().startsWith("/*") }
+            val deleteFunctions = nonCommentLines.filter { it.contains("fun delete", ignoreCase = true) || it.contains("\"DELETE\"") }
+            assertTrue("CalDavWriteClient must not expose delete operations: $deleteFunctions", deleteFunctions.isEmpty())
+        }
+    }
+
+    @Test
+    fun `renderer and ics editor never write or flip remote color`() {
+        val editorFile = File(mainSrcDir, "data/ical/IcsDocumentEditor.kt")
+        if (editorFile.exists()) {
+            val nonCommentLines = editorFile.readLines().filterNot { it.trim().startsWith("*") || it.trim().startsWith("//") }
+            val colorWrites = nonCommentLines.filter { it.contains("COLOR:", ignoreCase = true) || it.contains("\"COLOR\"") }
+            assertTrue("IcsDocumentEditor must never mutate COLOR: $colorWrites", colorWrites.isEmpty())
+        }
     }
 
     private fun kotlinFiles(dir: File): List<File> =

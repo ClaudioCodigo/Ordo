@@ -5,7 +5,7 @@ import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
 import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
 
 interface ServiceOrderRepository {
@@ -16,7 +16,7 @@ interface ServiceOrderRepository {
     suspend fun deleteServiceOrder(id: UUID)
 
     // --- Structured Phase 3 Interface (with default implementations for test fakes) ---
-    fun observeStructuredOrders(): Flow<List<StructuredServiceOrder>> = emptyFlow()
+    fun observeStructuredOrders(): Flow<List<StructuredServiceOrder>> = flowOf(emptyList())
     suspend fun getStructuredOrderById(id: UUID): StructuredServiceOrder? = null
     suspend fun saveStructuredOrder(order: StructuredServiceOrder) {}
 

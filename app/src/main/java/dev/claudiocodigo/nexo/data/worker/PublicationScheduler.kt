@@ -13,12 +13,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class PublicationScheduler @Inject constructor(
-    @ApplicationContext private val context: Context
+open class PublicationScheduler @Inject constructor(
+    @param:ApplicationContext private val context: Context
 ) {
     private val workManager by lazy { WorkManager.getInstance(context) }
 
-    fun scheduleDrain() {
+    open fun scheduleDrain() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()

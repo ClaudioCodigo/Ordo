@@ -36,6 +36,7 @@ import dev.claudiocodigo.nexo.ui.screens.cadastros.CadastrosScreen
 import dev.claudiocodigo.nexo.ui.screens.cadastros.ListaCadastroScreen
 import dev.claudiocodigo.nexo.ui.screens.conflito.ConflictReviewScreen
 import dev.claudiocodigo.nexo.ui.screens.conta.ContaNextcloudScreen
+import dev.claudiocodigo.nexo.ui.screens.sincronizacoes.SyncCenterScreen
 import dev.claudiocodigo.nexo.ui.screens.conta.QrScanScreen
 import dev.claudiocodigo.nexo.ui.screens.descoberta.DescobertaAgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.detalhes.DetalhesScreen
@@ -80,6 +81,7 @@ fun MainScreen() {
                         currentRoute is Route.EditorOS ||
                         currentRoute is Route.PreviewPublicacao ||
                         currentRoute is Route.RevisaoConflito ||
+                        currentRoute is Route.CentralSincronizacao ||
                         currentRoute is Route.DiagnosticoBateria ||
                         currentRoute is Route.ListaCadastro ||
                         currentRoute is Route.ContaNextcloud ||
@@ -141,7 +143,16 @@ fun MainScreen() {
                     }
                     is Route.Mais -> NavEntry(key) {
                         MaisScreen(
-                            onNavigateToConta = { currentBackStack.add(Route.ContaNextcloud) }
+                            onNavigateToConta = { currentBackStack.add(Route.ContaNextcloud) },
+                            onNavigateToSyncCenter = { currentBackStack.add(Route.CentralSincronizacao) }
+                        )
+                    }
+                    is Route.CentralSincronizacao -> NavEntry(key) {
+                        SyncCenterScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onNavigateToConflict = { orderId ->
+                                currentBackStack.add(Route.RevisaoConflito(orderId.toString()))
+                            }
                         )
                     }
                     is Route.DetalhesOS -> NavEntry(key) {

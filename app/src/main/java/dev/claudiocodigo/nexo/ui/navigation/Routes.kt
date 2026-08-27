@@ -44,6 +44,9 @@ sealed interface Route {
     data object ContaNextcloud : Route
 
     @Serializable
+    data object CentralSincronizacao : Route
+
+    @Serializable
     data object QrScanner : Route
 
     @Serializable
