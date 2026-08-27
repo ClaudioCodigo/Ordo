@@ -30,4 +30,20 @@ sealed interface Route {
 
     @Serializable
     data class ListaCadastro(val tipo: String) : Route
+
+    @Serializable
+    data object ContaNextcloud : Route
+
+    @Serializable
+    data object QrScanner : Route
+
+    @Serializable
+    data object DescobertaAgenda : Route
+
+    @Serializable
+    data class EventoRemoto(
+        val accountId: String,
+        val calendarHref: String,
+        val href: String
+    ) : Route
 }

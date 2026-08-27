@@ -1,5 +1,9 @@
 # Requisitos do Nexo
 
+> A implementação técnica da Fase 2 está verificada, mas a fase permanece
+> aguardando UAT real em aparelho/Nextcloud. Nenhuma credencial real foi usada;
+> os testes instrumentados foram compilados e dependem de aparelho/emulador.
+
 ## Fundacao e integridade
 
 - [x] **FND-01** Preservar a UI e as cinco abas aprovadas durante a estabilizacao.
@@ -14,20 +18,20 @@
 
 ## Conta e descoberta
 
-- [ ] **AUT-01** Conectar pelo QR do Nextcloud como fluxo principal.
-- [ ] **AUT-02** Permitir configuracao manual de servidor, login e senha de aplicativo.
-- [ ] **AUT-03** Validar esquema, campos e HTTPS antes de salvar.
-- [ ] **AUT-04** Armazenar senha com protecao baseada no Android Keystore.
-- [ ] **AUT-05** Descobrir e listar calendarios; selecionar um calendario de trabalho.
-- [ ] **AUT-06** Desconectar apaga credenciais locais; exportacoes nunca as incluem.
+- [x] **AUT-01** Conectar pelo QR do Nextcloud como fluxo principal.
+- [x] **AUT-02** Permitir configuracao manual de servidor, login e senha de aplicativo.
+- [x] **AUT-03** Validar esquema, campos e HTTPS antes de salvar.
+- [x] **AUT-04** Armazenar senha com protecao baseada no Android Keystore.
+- [x] **AUT-05** Descobrir e listar calendarios; selecionar um calendario de trabalho.
+- [x] **AUT-06** Desconectar apaga credenciais locais; exportacoes nunca as incluem.
 
 ## Leitura CalDAV e agenda
 
-- [ ] **CAL-01** Importar eventos por `UID`/`href`, preservando ICS bruto, `ETag`, `SEQUENCE` e cor.
-- [ ] **CAL-02** Preservar `SUMMARY` e `DESCRIPTION` brutos mesmo quando a extracao for parcial.
-- [ ] **CAL-03** Mostrar Hoje, Agenda, pesquisa, atrasos e estado de sincronizacao a partir do banco local.
-- [ ] **CAL-04** Reconhecer verde como validado, vermelho como requer atencao e outras cores como nao classificadas.
-- [ ] **CAL-05** Tratar nova `UID` como novo evento e apenas sugerir relacao com eventos semelhantes.
+- [x] **CAL-01** Importar eventos por `UID`/`href`, preservando ICS bruto, `ETag`, `SEQUENCE` e cor.
+- [x] **CAL-02** Preservar `SUMMARY` e `DESCRIPTION` brutos mesmo quando a extracao for parcial.
+- [x] **CAL-03** Mostrar Hoje, Agenda, pesquisa, atrasos e estado de sincronizacao a partir do banco local.
+- [x] **CAL-04** Reconhecer verde como validado, vermelho como requer atencao e outras cores como nao classificadas.
+- [x] **CAL-05** Tratar nova `UID` como novo evento e apenas sugerir relacao com eventos semelhantes.
 
 ## Ordens de Servico
 

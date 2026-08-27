@@ -8,6 +8,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.claudiocodigo.nexo.data.local.NexoDatabase
+import dev.claudiocodigo.nexo.data.local.NexoDatabaseMigrations
+import dev.claudiocodigo.nexo.data.local.dao.CalendarAccountDao
+import dev.claudiocodigo.nexo.data.local.dao.CalendarDao
+import dev.claudiocodigo.nexo.data.local.dao.CalendarSyncStateDao
+import dev.claudiocodigo.nexo.data.local.dao.RemoteEventDao
 import dev.claudiocodigo.nexo.data.local.dao.ServiceOrderDao
 import javax.inject.Singleton
 
@@ -22,11 +27,33 @@ object DatabaseModule {
             context,
             NexoDatabase::class.java,
             NexoDatabase.DATABASE_NAME
-        ).build()
+        )
+            .addMigrations(NexoDatabaseMigrations.MIGRATION_1_2)
+            .build()
     }
 
     @Provides
     fun provideServiceOrderDao(database: NexoDatabase): ServiceOrderDao {
         return database.serviceOrderDao()
+    }
+
+    @Provides
+    fun provideCalendarAccountDao(database: NexoDatabase): CalendarAccountDao {
+        return database.calendarAccountDao()
+    }
+
+    @Provides
+    fun provideCalendarDao(database: NexoDatabase): CalendarDao {
+        return database.calendarDao()
+    }
+
+    @Provides
+    fun provideRemoteEventDao(database: NexoDatabase): RemoteEventDao {
+        return database.remoteEventDao()
+    }
+
+    @Provides
+    fun provideCalendarSyncStateDao(database: NexoDatabase): CalendarSyncStateDao {
+        return database.calendarSyncStateDao()
     }
 }

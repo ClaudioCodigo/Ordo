@@ -10,7 +10,7 @@
 
 ## Fase 2 — Conta Nextcloud e agenda somente leitura
 
-**Status:** proxima fase planejada.
+**Status:** implementação técnica verificada; UAT real de conexão, descoberta, seleção e leitura aprovada em 27/08/2026. Restam os cenários de revogação e confirmação externa de zero escrita.
 
 **Objetivo:** conectar por QR/manual, descobrir o calendario e importar eventos sem permitir escrita remota.
 

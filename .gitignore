@@ -20,3 +20,5 @@ local.properties
 *.p12
 secrets.properties
 **/secrets.properties
+# Local Gradle diagnostic logs.
+gradle-*.log

@@ -8,12 +8,19 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,16 +42,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.claudiocodigo.nexo.R
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
+import dev.claudiocodigo.nexo.domain.caldav.EventColor
+import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
 import dev.claudiocodigo.nexo.ui.screens.hoje.ServiceOrderCard
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AgendaScreen(
     onNavigateToDetails: (String) -> Unit,
+    onNavigateToRemoteEvent: (accountId: String, calendarHref: String, href: String) -> Unit = { _, _, _ -> },
     viewModel: AgendaViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -88,7 +99,8 @@ fun AgendaScreen(
             when (val state = uiState) {
                 AgendaUiState.Loading -> Text("Carregando agenda local…", modifier = Modifier.padding(16.dp).testTag("agenda_loading"))
                 is AgendaUiState.Success -> {
-                    if (state.groupedOrders.isEmpty()) {
+                    val groups = (state.groupedOrders.keys + state.groupedRemoteEvents.keys).distinct()
+                    if (groups.isEmpty()) {
                         Text(
                             text = if (searchQuery.isBlank()) "Nenhuma ordem de serviço cadastrada." else "Nenhum resultado encontrado.",
                             style = MaterialTheme.typography.bodyLarge,
@@ -99,7 +111,9 @@ fun AgendaScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
-                        state.groupedOrders.forEach { (date, orders) ->
+                        groups.forEach { date ->
+                            val orders = state.groupedOrders[date].orEmpty()
+                            val remoteEvents = state.groupedRemoteEvents[date].orEmpty()
                             stickyHeader {
                                 Box(
                                     modifier = Modifier
@@ -124,6 +138,11 @@ fun AgendaScreen(
                                             { pendingDeletion = os }
                                         } else null
                                     )
+                                }
+                            }
+                            items(remoteEvents, key = { "agenda_remote_${it.href}" }) { event ->
+                                AgendaRemoteEventCard(event) {
+                                    onNavigateToRemoteEvent(event.accountId, event.calendarHref, event.href)
                                 }
                             }
                         }
@@ -160,4 +179,42 @@ fun AgendaScreen(
             }
         )
     }
+}
+
+@Composable
+private fun AgendaRemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = androidx.compose.material3.CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Event, contentDescription = "Evento remoto", tint = MaterialTheme.colorScheme.primary)
+                    Text(event.summary ?: "Evento sem título", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+                }
+                event.description?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
+                Text(
+                    when (event.color) {
+                        EventColor.REQUER_ATENCAO -> "Requer atenção"
+                        EventColor.VALIDADO -> "Validado"
+                        else -> "Não classificado"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (event.color == EventColor.REQUER_ATENCAO) ComposeColor(0xFFC62828) else MaterialTheme.colorScheme.outline
+                )
+            }
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.size(12.dp).background(remoteColor(event.rawEventColor), androidx.compose.foundation.shape.CircleShape)
+            )
+        }
+    }
+}
+
+private fun remoteColor(raw: String?): ComposeColor {
+    val hex = raw?.removePrefix("#") ?: return ComposeColor.Gray
+    return runCatching { ComposeColor(0xFF000000L or hex.toLong(16)) }.getOrDefault(ComposeColor.Gray)
 }

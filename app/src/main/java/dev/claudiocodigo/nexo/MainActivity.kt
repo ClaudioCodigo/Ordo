@@ -34,7 +34,11 @@ import dev.claudiocodigo.nexo.ui.navigation.Route
 import dev.claudiocodigo.nexo.ui.screens.agenda.AgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.cadastros.CadastrosScreen
 import dev.claudiocodigo.nexo.ui.screens.cadastros.ListaCadastroScreen
+import dev.claudiocodigo.nexo.ui.screens.conta.ContaNextcloudScreen
+import dev.claudiocodigo.nexo.ui.screens.conta.QrScanScreen
+import dev.claudiocodigo.nexo.ui.screens.descoberta.DescobertaAgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.detalhes.DetalhesScreen
+import dev.claudiocodigo.nexo.ui.screens.remoto.RemoteEventDetailScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.DiagnosticoBateriaScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.FerramentasScreen
 import dev.claudiocodigo.nexo.ui.screens.hoje.HojeScreen
@@ -71,7 +75,13 @@ fun MainScreen() {
     val hideBottomBar = currentRoute is Route.DetalhesOS ||
                         currentRoute is Route.NovaOS ||
                         currentRoute is Route.DiagnosticoBateria ||
-                        currentRoute is Route.ListaCadastro
+                        currentRoute is Route.ListaCadastro ||
+                        currentRoute is Route.ContaNextcloud ||
+                        currentRoute is Route.QrScanner ||
+                        currentRoute is Route.DescobertaAgenda ||
+                        currentRoute is Route.EventoRemoto
+
+    var pendingQrPayload by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         modifier = Modifier.testTag("screen_main"),
@@ -99,12 +109,18 @@ fun MainScreen() {
                             onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) },
                             onNavigateToNewOS = {
                                 currentBackStack.add(Route.NovaOS(UUID.randomUUID().toString()))
+                            },
+                            onNavigateToRemoteEvent = { accountId, calHref, href ->
+                                currentBackStack.add(Route.EventoRemoto(accountId, calHref, href))
                             }
                         )
                     }
                     is Route.Agenda -> NavEntry(key) {
                         AgendaScreen(
-                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) }
+                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) },
+                            onNavigateToRemoteEvent = { accountId, calHref, href ->
+                                currentBackStack.add(Route.EventoRemoto(accountId, calHref, href))
+                            }
                         )
                     }
                     is Route.Ferramentas -> NavEntry(key) {
@@ -117,7 +133,11 @@ fun MainScreen() {
                             onNavigateToLista = { tipo -> currentBackStack.add(Route.ListaCadastro(tipo)) }
                         )
                     }
-                    is Route.Mais -> NavEntry(key) { MaisScreen() }
+                    is Route.Mais -> NavEntry(key) {
+                        MaisScreen(
+                            onNavigateToConta = { currentBackStack.add(Route.ContaNextcloud) }
+                        )
+                    }
                     is Route.DetalhesOS -> NavEntry(key) {
                         DetalhesScreen(
                             osId = key.id,
@@ -142,6 +162,38 @@ fun MainScreen() {
                         ListaCadastroScreen(
                             tipo = key.tipo,
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.ContaNextcloud -> NavEntry(key) {
+                        ContaNextcloudScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onOpenQrScanner = { currentBackStack.add(Route.QrScanner) },
+                            onOpenDiscovery = { currentBackStack.add(Route.DescobertaAgenda) },
+                            pendingQrPayload = pendingQrPayload,
+                            onQrConsumed = { pendingQrPayload = null }
+                        )
+                    }
+                    is Route.QrScanner -> NavEntry(key) {
+                        QrScanScreen(
+                            onQrResult = { payload ->
+                                pendingQrPayload = payload
+                                if (currentBackStack.size > 1) currentBackStack.removeAt(currentBackStack.size - 1)
+                            },
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.DescobertaAgenda -> NavEntry(key) {
+                        DescobertaAgendaScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onSelected = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.EventoRemoto -> NavEntry(key) {
+                        RemoteEventDetailScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            accountId = key.accountId,
+                            calendarHref = key.calendarHref,
+                            href = key.href
                         )
                     }
                 }
