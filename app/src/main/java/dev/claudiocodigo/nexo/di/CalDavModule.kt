@@ -6,9 +6,11 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dev.claudiocodigo.nexo.data.caldav.NextcloudCalDavDiscoveryClient
 import dev.claudiocodigo.nexo.data.caldav.NextcloudCalDavReadClient
+import dev.claudiocodigo.nexo.data.caldav.NextcloudCalDavWriteClient
 import dev.claudiocodigo.nexo.data.caldav.RoomCalendarSyncCoordinator
 import dev.claudiocodigo.nexo.domain.caldav.CalDavDiscoveryClient
 import dev.claudiocodigo.nexo.domain.caldav.CalDavReadClient
+import dev.claudiocodigo.nexo.domain.caldav.CalDavWriteClient
 import dev.claudiocodigo.nexo.domain.caldav.CalendarSyncCoordinator
 import javax.inject.Singleton
 
@@ -27,6 +29,12 @@ abstract class CalDavModule {
     abstract fun bindCalDavReadClient(
         nextcloudCalDavReadClient: NextcloudCalDavReadClient
     ): CalDavReadClient
+
+    @Binds
+    @Singleton
+    abstract fun bindCalDavWriteClient(
+        nextcloudCalDavWriteClient: NextcloudCalDavWriteClient
+    ): CalDavWriteClient
 
     @Binds
     @Singleton

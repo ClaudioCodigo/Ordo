@@ -50,7 +50,7 @@ class HojeViewModel @Inject constructor(
                 (it.start ?: it.end ?: Long.MIN_VALUE) > historicalCutoff
         }.sortedWith(newestFirst)
         val overdueEvents = remoteEvents.filter {
-            it.end != null && it.end < now &&
+            it.end != null && it.end < dayStart &&
                 (it.start ?: it.end ?: Long.MIN_VALUE) > historicalCutoff &&
                 it.color != dev.claudiocodigo.nexo.domain.caldav.EventColor.VALIDADO &&
                 it.color != dev.claudiocodigo.nexo.domain.caldav.EventColor.REQUER_ATENCAO

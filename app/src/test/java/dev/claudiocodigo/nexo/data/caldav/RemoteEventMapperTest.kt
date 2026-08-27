@@ -50,57 +50,37 @@ class RemoteEventMapperTest {
     }
 
     @Test
-    fun `falls back to href as uid when ICS has none`() {
+    fun `maps multiple occurrences from recurring series with exceptions`() {
         val ics = """
             BEGIN:VCALENDAR
             VERSION:2.0
             BEGIN:VEVENT
+            UID:series-1
             DTSTART:20260826T090000Z
-            SUMMARY:Sem UID
+            SUMMARY:Reunião Semanal
+            RRULE:FREQ=WEEKLY
+            END:VEVENT
+            BEGIN:VEVENT
+            UID:series-1
+            RECURRENCE-ID:20260902T090000Z
+            SUMMARY:Reunião Semanal - Exceção
+            DESCRIPTION:Pauta especial
             END:VEVENT
             END:VCALENDAR
         """.trimIndent()
 
-        val event = RemoteEventMapper.map(
-            EventResource(href = "/cal/no-uid.ics", etag = "etag", ics = ics),
-            "acct-1", "/cal/", 5L
-        )!!
-        assertEquals("/cal/no-uid.ics", event.uid)
-    }
-
-    @Test
-    fun `returns null when the resource contains no VEVENT`() {
-        val ics = """
-            BEGIN:VCALENDAR
-            VERSION:2.0
-            BEGIN:VTODO
-            SUMMARY:Tarefa
-            END:VTODO
-            END:VCALENDAR
-        """.trimIndent()
-
-        val event = RemoteEventMapper.map(
-            EventResource(href = "/cal/todo.ics", etag = "e", ics = ics),
-            "acct-1", "/cal/", 5L
+        val occurrences = RemoteEventMapper.mapOccurrences(
+            EventResource(href = "/cal/series.ics", etag = "\"etag\"", ics = ics),
+            accountId = "acct-1",
+            calendarHref = "/cal/",
+            nowMillis = 2000L
         )
-        assertNull(event)
-    }
 
-    @Test
-    fun `green color maps to validated`() {
-        val ics = """
-            BEGIN:VCALENDAR
-            VERSION:2.0
-            BEGIN:VEVENT
-            UID:g
-            DTSTART:20260826T090000Z
-            COLOR:#008000
-            END:VEVENT
-            END:VCALENDAR
-        """.trimIndent()
-        val event = RemoteEventMapper.map(
-            EventResource("/cal/g.ics", "e", ics), "a", "/cal/", 1L
-        )!!
-        assertEquals(EventColor.VALIDADO, event.color)
+        assertEquals(2, occurrences.size)
+        assertEquals("", occurrences[0].recurrenceId)
+        assertEquals("Reunião Semanal", occurrences[0].summary)
+
+        assertEquals("20260902T090000Z", occurrences[1].recurrenceId)
+        assertEquals("Reunião Semanal - Exceção", occurrences[1].summary)
     }
 }

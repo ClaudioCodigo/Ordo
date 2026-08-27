@@ -26,6 +26,15 @@ sealed interface Route {
     data class NovaOS(val entryId: String) : Route
 
     @Serializable
+    data class EditorOS(val orderId: String) : Route
+
+    @Serializable
+    data class PreviewPublicacao(val orderId: String) : Route
+
+    @Serializable
+    data class RevisaoConflito(val orderId: String) : Route
+
+    @Serializable
     data object DiagnosticoBateria : Route
 
     @Serializable

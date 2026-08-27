@@ -34,10 +34,13 @@ import dev.claudiocodigo.nexo.ui.navigation.Route
 import dev.claudiocodigo.nexo.ui.screens.agenda.AgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.cadastros.CadastrosScreen
 import dev.claudiocodigo.nexo.ui.screens.cadastros.ListaCadastroScreen
+import dev.claudiocodigo.nexo.ui.screens.conflito.ConflictReviewScreen
 import dev.claudiocodigo.nexo.ui.screens.conta.ContaNextcloudScreen
 import dev.claudiocodigo.nexo.ui.screens.conta.QrScanScreen
 import dev.claudiocodigo.nexo.ui.screens.descoberta.DescobertaAgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.detalhes.DetalhesScreen
+import dev.claudiocodigo.nexo.ui.screens.oseditor.ServiceOrderEditorScreen
+import dev.claudiocodigo.nexo.ui.screens.preview.PublicationPreviewScreen
 import dev.claudiocodigo.nexo.ui.screens.remoto.RemoteEventDetailScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.DiagnosticoBateriaScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.FerramentasScreen
@@ -74,6 +77,9 @@ fun MainScreen() {
 
     val hideBottomBar = currentRoute is Route.DetalhesOS ||
                         currentRoute is Route.NovaOS ||
+                        currentRoute is Route.EditorOS ||
+                        currentRoute is Route.PreviewPublicacao ||
+                        currentRoute is Route.RevisaoConflito ||
                         currentRoute is Route.DiagnosticoBateria ||
                         currentRoute is Route.ListaCadastro ||
                         currentRoute is Route.ContaNextcloud ||
@@ -106,9 +112,9 @@ fun MainScreen() {
                 when (key) {
                     is Route.Hoje -> NavEntry(key) {
                         HojeScreen(
-                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) },
+                            onNavigateToDetails = { id -> currentBackStack.add(Route.EditorOS(id)) },
                             onNavigateToNewOS = {
-                                currentBackStack.add(Route.NovaOS(UUID.randomUUID().toString()))
+                                currentBackStack.add(Route.EditorOS(UUID.randomUUID().toString()))
                             },
                             onNavigateToRemoteEvent = { accountId, calHref, href ->
                                 currentBackStack.add(Route.EventoRemoto(accountId, calHref, href))
@@ -117,7 +123,7 @@ fun MainScreen() {
                     }
                     is Route.Agenda -> NavEntry(key) {
                         AgendaScreen(
-                            onNavigateToDetails = { id -> currentBackStack.add(Route.DetalhesOS(id)) },
+                            onNavigateToDetails = { id -> currentBackStack.add(Route.EditorOS(id)) },
                             onNavigateToRemoteEvent = { accountId, calHref, href ->
                                 currentBackStack.add(Route.EventoRemoto(accountId, calHref, href))
                             }
@@ -149,7 +155,38 @@ fun MainScreen() {
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
                             onSaved = { id ->
                                 currentBackStack.removeAt(currentBackStack.size - 1)
-                                currentBackStack.add(Route.DetalhesOS(id))
+                                currentBackStack.add(Route.EditorOS(id))
+                            }
+                        )
+                    }
+                    is Route.EditorOS -> NavEntry(key) {
+                        ServiceOrderEditorScreen(
+                            orderId = UUID.fromString(key.orderId),
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onNavigateToPreview = { id ->
+                                currentBackStack.add(Route.PreviewPublicacao(id.toString()))
+                            }
+                        )
+                    }
+                    is Route.PreviewPublicacao -> NavEntry(key) {
+                        PublicationPreviewScreen(
+                            orderId = UUID.fromString(key.orderId),
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onConfirmed = {
+                                if (currentBackStack.size > 1) {
+                                    currentBackStack.removeAt(currentBackStack.size - 1)
+                                }
+                            }
+                        )
+                    }
+                    is Route.RevisaoConflito -> NavEntry(key) {
+                        ConflictReviewScreen(
+                            orderId = UUID.fromString(key.orderId),
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onResolved = {
+                                if (currentBackStack.size > 1) {
+                                    currentBackStack.removeAt(currentBackStack.size - 1)
+                                }
                             }
                         )
                     }
@@ -191,6 +228,9 @@ fun MainScreen() {
                     is Route.EventoRemoto -> NavEntry(key) {
                         RemoteEventDetailScreen(
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onStartAttendance = { orderId ->
+                                currentBackStack.add(Route.EditorOS(orderId.toString()))
+                            },
                             accountId = key.accountId,
                             calendarHref = key.calendarHref,
                             href = key.href

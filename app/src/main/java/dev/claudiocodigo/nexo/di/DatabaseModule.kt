@@ -12,8 +12,10 @@ import dev.claudiocodigo.nexo.data.local.NexoDatabaseMigrations
 import dev.claudiocodigo.nexo.data.local.dao.CalendarAccountDao
 import dev.claudiocodigo.nexo.data.local.dao.CalendarDao
 import dev.claudiocodigo.nexo.data.local.dao.CalendarSyncStateDao
+import dev.claudiocodigo.nexo.data.local.dao.PublicationOutboxDao
 import dev.claudiocodigo.nexo.data.local.dao.RemoteEventDao
 import dev.claudiocodigo.nexo.data.local.dao.ServiceOrderDao
+import dev.claudiocodigo.nexo.data.local.dao.ServiceOrderStoreDao
 import javax.inject.Singleton
 
 @Module
@@ -28,13 +30,26 @@ object DatabaseModule {
             NexoDatabase::class.java,
             NexoDatabase.DATABASE_NAME
         )
-            .addMigrations(NexoDatabaseMigrations.MIGRATION_1_2)
+            .addMigrations(
+                NexoDatabaseMigrations.MIGRATION_1_2,
+                NexoDatabaseMigrations.MIGRATION_2_3
+            )
             .build()
     }
 
     @Provides
     fun provideServiceOrderDao(database: NexoDatabase): ServiceOrderDao {
         return database.serviceOrderDao()
+    }
+
+    @Provides
+    fun provideServiceOrderStoreDao(database: NexoDatabase): ServiceOrderStoreDao {
+        return database.serviceOrderStoreDao()
+    }
+
+    @Provides
+    fun providePublicationOutboxDao(database: NexoDatabase): PublicationOutboxDao {
+        return database.publicationOutboxDao()
     }
 
     @Provides

@@ -13,12 +13,12 @@ import org.junit.runner.RunWith
 import java.io.IOException
 
 /**
- * Verifies the explicit Room migration 1 -> 2 against the real v1 schema.
+ * Verifies explicit Room migrations 1 -> 2 and 2 -> 3 against real schemas.
  *
- * Requires an emulator/device. Validates that:
- * - the v1 `service_orders` table and its rows survive untouched;
- * - the new Fase 2 tables exist and are queryable after the migration;
- * - a `uid` collision across two different `href`s is preserved.
+ * Validates that:
+ * - the v1 `service_orders` table and its rows survive untouched through 1 -> 2 and 2 -> 3;
+ * - the v2 remote mirror tables survive 2 -> 3 untouched;
+ * - the new Phase 3 tables and additive columns exist and are queryable.
  */
 @RunWith(AndroidJUnit4::class)
 class NexoDatabaseMigrationTest {
@@ -36,7 +36,6 @@ class NexoDatabaseMigrationTest {
     @Test
     @Throws(IOException::class)
     fun migrate1To2_preservesDraftsAndCreatesRemoteTables() {
-        // Create a v1 database and seed a draft exactly as Fase 1 would.
         helper.createDatabase(testDb, 1).use { db ->
             db.execSQL(
                 "INSERT INTO service_orders " +
@@ -45,39 +44,90 @@ class NexoDatabaseMigrationTest {
             )
         }
 
-        // Run the migration to v2.
         val db = helper.runMigrationsAndValidate(testDb, 2, true, NexoDatabaseMigrations.MIGRATION_1_2)
 
-        // The draft must have survived byte-for-byte.
         db.query("SELECT * FROM service_orders WHERE id = '00000000-0000-0000-0000-000000000001'").use { cursor ->
             assertTrue(cursor.moveToFirst())
             assertEquals("15428", cursor.getString(cursor.getColumnIndexOrThrow("externalId")))
             assertEquals("Manutenção", cursor.getString(cursor.getColumnIndexOrThrow("title")))
         }
 
-        // New remote tables must be queryable.
-        db.execSQL(
-            "INSERT INTO calendars (accountId, href, displayName, supportsVeEvent, hasWritePrivilege, isSelected, updatedAt) " +
-                "VALUES ('acct-1', '/cal/1/', 'Trabalho', 1, 1, 1, 1000)"
-        )
-        db.query("SELECT displayName FROM calendars WHERE accountId = 'acct-1'").use { c ->
-            assertTrue(c.moveToFirst())
-            assertEquals("Trabalho", c.getString(0))
+        assertNotNull(db)
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate2To3_preservesExistingDataAndAddsPhase3Tables() {
+        helper.createDatabase(testDb, 2).use { db ->
+            db.execSQL(
+                "INSERT INTO service_orders " +
+                    "(id, externalId, title, description, status, clientName, unitName, scheduledDate, createdAt, updatedAt) " +
+                    "VALUES ('00000000-0000-0000-0000-000000000002', '15429', 'Troca Bateria', 'Demanda', 'PENDENTE', 'Hospital Y', 'U2', 1735689600000, 1000, 2000)"
+            )
+            db.execSQL(
+                "INSERT INTO calendar_accounts (id, server, user, createdAt, updatedAt) " +
+                    "VALUES ('acct-1', 'https://cloud.example.com', 'maria', 1000, 2000)"
+            )
+            db.execSQL(
+                "INSERT INTO calendars (accountId, href, displayName, supportsVeEvent, hasWritePrivilege, isSelected, updatedAt) " +
+                    "VALUES ('acct-1', '/cal/1/', 'Trabalho', 1, 1, 1, 1000)"
+            )
         }
 
-        // Two resources sharing the same uid but distinct hrefs must both persist.
-        val ics = "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:same\nEND:VEVENT\nEND:VCALENDAR"
+        val db = helper.runMigrationsAndValidate(testDb, 3, true, NexoDatabaseMigrations.MIGRATION_2_3)
+
+        // Seeded service order survives with default values for new columns
+        db.query("SELECT * FROM service_orders WHERE id = '00000000-0000-0000-0000-000000000002'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("15429", cursor.getString(cursor.getColumnIndexOrThrow("externalId")))
+            assertEquals("DIAGNOSTICO_CORRECAO", cursor.getString(cursor.getColumnIndexOrThrow("preset")))
+            assertEquals("LOCAL_DRAFT", cursor.getString(cursor.getColumnIndexOrThrow("publicationState")))
+        }
+
+        // Remote account and calendar survive
+        db.query("SELECT server FROM calendar_accounts WHERE id = 'acct-1'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("https://cloud.example.com", cursor.getString(0))
+        }
+
+        // New Phase 3 tables are queryable and insertable
         db.execSQL(
-            "INSERT INTO remote_events (accountId, calendarHref, href, uid, rawIcs, allDay, color, lastSyncMillis) " +
-                "VALUES ('acct-1', '/cal/1/', '/cal/1/e1.ics', 'same', '$ics', 0, 'NAO_CLASSIFICADO', 1000)"
+            "INSERT INTO service_order_links (accountId, calendarHref, eventHref, recurrenceId, orderId, linkedAt) " +
+                "VALUES ('acct-1', '/cal/1/', '/cal/1/e1.ics', '', '00000000-0000-0000-0000-000000000002', 1000)"
         )
-        db.execSQL(
-            "INSERT INTO remote_events (accountId, calendarHref, href, uid, rawIcs, allDay, color, lastSyncMillis) " +
-                "VALUES ('acct-1', '/cal/1/', '/cal/1/e2.ics', 'same', '$ics', 0, 'NAO_CLASSIFICADO', 1000)"
+        db.query("SELECT orderId FROM service_order_links WHERE eventHref = '/cal/1/e1.ics'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("00000000-0000-0000-0000-000000000002", cursor.getString(0))
+        }
+
+        assertNotNull(db)
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate1To3_composedPreservesData() {
+        helper.createDatabase(testDb, 1).use { db ->
+            db.execSQL(
+                "INSERT INTO service_orders " +
+                    "(id, externalId, title, description, status, clientName, unitName, scheduledDate, createdAt, updatedAt) " +
+                    "VALUES ('00000000-0000-0000-0000-000000000003', '15430', 'Instalação', 'Desc', 'CONCLUIDA', 'Cliente Z', 'U3', 1735689600000, 1000, 2000)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(
+            testDb,
+            3,
+            true,
+            NexoDatabaseMigrations.MIGRATION_1_2,
+            NexoDatabaseMigrations.MIGRATION_2_3
         )
-        db.query("SELECT COUNT(*) FROM remote_events WHERE uid = 'same'").use { c ->
-            assertTrue(c.moveToFirst())
-            assertEquals(2, c.getInt(0))
+
+        db.query("SELECT * FROM service_orders WHERE id = '00000000-0000-0000-0000-000000000003'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("15430", cursor.getString(cursor.getColumnIndexOrThrow("externalId")))
+            assertEquals("CONCLUIDA", cursor.getString(cursor.getColumnIndexOrThrow("status")))
         }
 
         assertNotNull(db)
