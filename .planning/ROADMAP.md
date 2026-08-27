@@ -18,11 +18,17 @@
 
 **Seguranca de teste:** calendario separado; nenhum evento preexistente e alterado.
 
-## Fase 3 — Ordens de Servico e publicacao controlada
+### Phase 3: Ordens de Servico e publicacao controlada
 
-**Objetivo:** estruturar formularios, atualizacoes, finalizacoes e atendimentos provisórios.
+**Requirements:** OS-01, OS-02, OS-03, OS-04, OS-05, OS-06, OS-07, OS-08
 
-**Entrega demonstravel:** criar uma OS `[TESTE NEXO]` em sabado/domingo, editar descricao formatada e preservar titulo, data, horario, local e cor.
+**Goal:** estruturar formularios, atualizacoes, finalizacoes e atendimentos provisórios.
+
+**Success Criteria:**
+
+1. Criar uma OS `[TESTE NEXO]` em sabado/domingo.
+2. Editar e publicar uma descricao formatada mediante previa e confirmacao.
+3. Preservar titulo, data, horario, local, cor e propriedades desconhecidas do evento.
 
 ## Fase 4 — Conflitos, sincronizacao e notificacoes
 
