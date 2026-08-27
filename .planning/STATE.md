@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+status: unknown
+stopped_at: Phase 3 context gathered
+last_updated: "2026-08-27T16:30:54.407Z"
+state_head: eecaf99c0fd17213ea8ca6cb8b725532bf8e1a3b
+progress:
+  total_phases: 3
+  completed_phases: 0
+  total_plans: 2
+  completed_plans: 2
+  percent: 0
+---
+
 # Estado do projeto
 
 - Data da ultima atualizacao: 27/08/2026.
@@ -24,3 +38,9 @@
 - Implementacao autonoma lote por lote (0→6) com verificacao de build/testes/lint a cada lote.
 - Lote 7: documentacao/estado atualizados; UAT em aparelho e teste com credencial real ficam para o autor.
 - Nenhuma credencial deve ser enviada por chat; QR sera escaneado no app durante teste real.
+
+## Session
+
+**Last session:** 2026-08-27T16:30:54.375Z
+**Stopped at:** Phase 3 context gathered
+**Resume file:** .planning/phases/03-ordens-de-servico-publicacao-controlada/03-CONTEXT.md
