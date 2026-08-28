@@ -7,8 +7,10 @@ import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
 import dev.claudiocodigo.nexo.domain.repository.CalendarRepository
 import dev.claudiocodigo.nexo.domain.repository.ServiceOrderRepository
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
+import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderDiff
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderExtractor
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
+import dev.claudiocodigo.nexo.domain.serviceorder.RemoteBaseSnapshot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,21 +28,31 @@ class RemoteEventDetailViewModel @Inject constructor(
     val uiState: StateFlow<RemoteEventDetailUiState> = _uiState.asStateFlow()
 
     fun load(accountId: String, calendarHref: String, href: String) {
-        if (_uiState.value is RemoteEventDetailUiState.Success) return
         viewModelScope.launch {
-            _uiState.value = calendarRepository.getEvent(accountId, calendarHref, href)
-                ?.let { RemoteEventDetailUiState.Success(it) }
-                ?: RemoteEventDetailUiState.Error("Evento não encontrado no cache local")
+            val event = calendarRepository.getEvent(accountId, calendarHref, href)
+            if (event == null) {
+                _uiState.value = RemoteEventDetailUiState.Error("Evento não encontrado no cache local")
+                return@launch
+            }
+            val key = RemoteOccurrenceKey(event.accountId, event.calendarHref, event.href, null)
+            val linked = serviceOrderRepository.getLinkedOrder(key)
+            _uiState.value = RemoteEventDetailUiState.Success(event, linked?.id)
         }
     }
 
-    fun startAttendance(onStarted: (UUID) -> Unit) {
+    fun startAttendance(onStarted: (UUID, Boolean) -> Unit) {
         val success = _uiState.value as? RemoteEventDetailUiState.Success ?: return
-        val event = success.event
+        val displayedEvent = success.event
 
         viewModelScope.launch {
+            val event = calendarRepository.getEvent(
+                displayedEvent.accountId,
+                displayedEvent.calendarHref,
+                displayedEvent.href
+            ) ?: displayedEvent
             val summaryInfo = ServiceOrderExtractor.extractSummary(event.summary)
             val descInfo = ServiceOrderExtractor.extractDescription(event.description)
+            val remoteExternalId = summaryInfo.externalId ?: descInfo.externalId
 
             val key = RemoteOccurrenceKey(
                 accountId = event.accountId,
@@ -49,7 +61,58 @@ class RemoteEventDetailViewModel @Inject constructor(
                 recurrenceId = null
             )
 
-            val order = serviceOrderRepository.createOrGetAttendance(
+            val existing = serviceOrderRepository.getLinkedOrder(key)
+            if (existing != null) {
+                val changeAnalysis = ServiceOrderDiff.analyzeRemoteChange(
+                    localOrder = existing,
+                    remoteExternalId = remoteExternalId,
+                    remoteDemand = descInfo.originalDemand,
+                    remoteTitle = summaryInfo.title,
+                    remoteCause = descInfo.closureCause,
+                    remoteSolution = descInfo.closureSolution,
+                    remotePending = descInfo.closurePending,
+                    remoteRawSummary = event.summary,
+                    remoteRawDescription = event.description
+                )
+                val legacyMissingOfficialId = existing.externalId == null && remoteExternalId != null
+                val remoteVersionChanged = existing.baseSnapshot?.etag != event.etag
+
+                if (remoteVersionChanged && changeAnalysis.hasUnmappedRemoteTextChange) {
+                    _uiState.value = RemoteEventDetailUiState.Error(
+                        "O calendário mudou em um texto que não pode ser comparado com segurança. " +
+                            "Atualize os eventos e tente novamente sem descartar o rascunho local."
+                    )
+                    return@launch
+                }
+
+                if ((remoteVersionChanged || legacyMissingOfficialId) && changeAnalysis.differences.isNotEmpty()) {
+                    onStarted(existing.id, true)
+                    return@launch
+                }
+
+                if (remoteVersionChanged) {
+                    serviceOrderRepository.saveStructuredOrder(
+                        existing.copy(
+                            baseSnapshot = (existing.baseSnapshot ?: RemoteBaseSnapshot(
+                                etag = event.etag,
+                                rawIcs = event.rawIcs,
+                                rawSummary = event.summary,
+                                rawDescription = event.description
+                            )).copy(
+                                etag = event.etag,
+                                rawIcs = event.rawIcs,
+                                rawSummary = event.summary,
+                                rawDescription = event.description,
+                                capturedAt = System.currentTimeMillis()
+                            )
+                        )
+                    )
+                }
+                onStarted(existing.id, false)
+                return@launch
+            }
+
+            val created = serviceOrderRepository.createOrGetAttendance(
                 key = key,
                 initialPreset = descInfo.preset,
                 title = summaryInfo.title,
@@ -62,14 +125,25 @@ class RemoteEventDetailViewModel @Inject constructor(
                 startMillis = event.start,
                 endMillis = event.end
             )
-
-            onStarted(order.id)
+            val order = created.copy(
+                externalId = remoteExternalId,
+                technician = summaryInfo.technician,
+                category = summaryInfo.category,
+                preset = descInfo.preset,
+                originalDemand = descInfo.originalDemand,
+                updates = descInfo.updates,
+                closureCause = descInfo.closureCause,
+                closureSolution = descInfo.closureSolution,
+                closurePending = descInfo.closurePending
+            )
+            serviceOrderRepository.saveStructuredOrder(order)
+            onStarted(order.id, false)
         }
     }
 }
 
 sealed interface RemoteEventDetailUiState {
     data object Loading : RemoteEventDetailUiState
-    data class Success(val event: RemoteEvent) : RemoteEventDetailUiState
+    data class Success(val event: RemoteEvent, val linkedOrderId: UUID? = null) : RemoteEventDetailUiState
     data class Error(val message: String) : RemoteEventDetailUiState
 }

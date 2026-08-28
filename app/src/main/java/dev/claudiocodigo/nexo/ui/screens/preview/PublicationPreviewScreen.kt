@@ -85,6 +85,7 @@ fun PublicationPreviewScreen(
                     ) {
                         Button(
                             onClick = viewModel::confirmPublication,
+                            enabled = !(state as PreviewUiState.Ready).isConfirming,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp)
@@ -92,7 +93,10 @@ fun PublicationPreviewScreen(
                         ) {
                             Icon(Icons.Rounded.CheckCircle, contentDescription = null)
                             Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                            Text("Confirmar e Enviar ao Calendário")
+                            Text(
+                                if ((state as PreviewUiState.Ready).isConfirming) "Colocando na fila..."
+                                else "Confirmar e Enviar ao Calendário"
+                            )
                         }
                         OutlinedButton(
                             onClick = onBack,
@@ -149,6 +153,21 @@ fun PublicationPreviewScreen(
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
+                        }
+                    }
+
+                    s.confirmationError?.let { message ->
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer
+                            ),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                        ) {
+                            Text(
+                                text = message,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(12.dp)
+                            )
                         }
                     }
 

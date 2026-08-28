@@ -14,6 +14,8 @@ import dev.claudiocodigo.nexo.domain.publication.OutboxOperation
 import dev.claudiocodigo.nexo.domain.publication.OutboxStatus
 import dev.claudiocodigo.nexo.domain.publication.PublicationRepository
 import dev.claudiocodigo.nexo.domain.repository.ServiceOrderRepository
+import dev.claudiocodigo.nexo.domain.repository.CalendarSetupRepository
+import dev.claudiocodigo.nexo.domain.caldav.CalendarInfo
 import dev.claudiocodigo.nexo.domain.serviceorder.PublicationState
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteBaseSnapshot
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
@@ -45,6 +47,7 @@ class PublicationCoordinatorTest {
         coordinator = RoomPublicationCoordinator(
             publicationRepository = publicationRepository,
             serviceOrderRepository = serviceOrderRepository,
+            calendarSetupRepository = FakeCalendarSetupRepository(),
             writeClient = writeClient,
             credentialStore = credentialStore,
             clock = object : ClockProvider { override fun nowMillis() = 1000L }
@@ -65,7 +68,7 @@ class PublicationCoordinatorTest {
             title = "Nova OS",
             clientName = "Cliente",
             unitName = "Unidade",
-            occurrenceKey = RemoteOccurrenceKey("acct-1", "/cal/", "/cal/new.ics", null)
+            occurrenceKey = null
         )
         serviceOrderRepository.orders[orderId] = order
 
@@ -80,7 +83,10 @@ class PublicationCoordinatorTest {
         )
         publicationRepository.operations[opId] = op
 
-        writeClient.nextCreateOutcome = WriteOutcome.Created("/cal/new.ics", "\"etag-1\"")
+        writeClient.nextCreateOutcome = WriteOutcome.Created(
+            "https://cloud.example.com/remote.php/dav/calendars/maria/agenda-real/$orderId.ics",
+            "\"etag-1\""
+        )
 
         val outcome = coordinator.drainNext()
 
@@ -88,6 +94,15 @@ class PublicationCoordinatorTest {
         assertEquals(opId, (outcome as DrainOutcome.Success).operationId)
         assertEquals(OutboxStatus.SENT, publicationRepository.operations[opId]?.status)
         assertEquals(PublicationState.PUBLISHED, serviceOrderRepository.orders[orderId]?.publicationState)
+        assertEquals(
+            "https://cloud.example.com/remote.php/dav/calendars/maria/agenda-real/$orderId.ics",
+            writeClient.lastCreateRequest?.targetHref
+        )
+        assertEquals(
+            "https://cloud.example.com/remote.php/dav/calendars/maria/agenda-real/$orderId.ics",
+            serviceOrderRepository.orders[orderId]?.occurrenceKey?.eventHref
+        )
+        assertEquals("\"etag-1\"", serviceOrderRepository.orders[orderId]?.baseSnapshot?.etag)
     }
 
     @Test
@@ -121,6 +136,46 @@ class PublicationCoordinatorTest {
         assertTrue(outcome is DrainOutcome.Conflict)
         assertEquals(OutboxStatus.CONFLICT, publicationRepository.operations[opId]?.status)
         assertEquals(PublicationState.CONFLICT, serviceOrderRepository.orders[orderId]?.publicationState)
+    }
+
+    @Test
+    fun `successful update refreshes base snapshot for the next conditional publication`() = runBlocking {
+        val orderId = UUID.randomUUID()
+        serviceOrderRepository.orders[orderId] = StructuredServiceOrder(
+            id = orderId,
+            title = "OS Existente",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            occurrenceKey = RemoteOccurrenceKey("acct-1", "/cal/", "https://cloud.example.com/cal/e1.ics", null),
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"old-etag\"",
+                rawIcs = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:e1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+                rawSummary = null,
+                rawDescription = null
+            )
+        )
+        val opId = UUID.randomUUID()
+        val newIcs = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:e1\r\nDESCRIPTION:Atualizada\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        publicationRepository.operations[opId] = OutboxOperation(
+            id = opId,
+            orderId = orderId,
+            action = OutboxAction.UPDATE,
+            payloadIcs = newIcs,
+            ifMatchEtag = "\"old-etag\"",
+            status = OutboxStatus.PENDING
+        )
+        writeClient.nextUpdateOutcome = WriteOutcome.Updated(
+            "https://cloud.example.com/cal/e1.ics",
+            "\"new-etag\""
+        )
+
+        val outcome = coordinator.drainNext()
+
+        assertTrue(outcome is DrainOutcome.Success)
+        val saved = serviceOrderRepository.orders[orderId]
+        assertEquals("\"new-etag\"", saved?.baseSnapshot?.etag)
+        assertEquals(newIcs, saved?.baseSnapshot?.rawIcs)
+        assertEquals("Atualizada", saved?.baseSnapshot?.rawDescription)
     }
 
     private class FakePublicationRepository : PublicationRepository {
@@ -177,10 +232,33 @@ class PublicationCoordinatorTest {
     }
 
     private class FakeWriteClient : CalDavWriteClient {
+        var lastCreateRequest: ConditionalCreate? = null
         var nextCreateOutcome: WriteOutcome = WriteOutcome.Created("/cal/new.ics", "\"etag\"")
         var nextUpdateOutcome: WriteOutcome = WriteOutcome.Updated("/cal/e1.ics", "\"etag\"")
-        override suspend fun create(request: ConditionalCreate, credentials: CalDavCredentials) = nextCreateOutcome
+        override suspend fun create(request: ConditionalCreate, credentials: CalDavCredentials): WriteOutcome {
+            lastCreateRequest = request
+            return nextCreateOutcome
+        }
         override suspend fun update(request: ConditionalUpdate, credentials: CalDavCredentials) = nextUpdateOutcome
+    }
+
+    private class FakeCalendarSetupRepository : CalendarSetupRepository {
+        private val selected = CalendarInfo(
+            href = "/remote.php/dav/calendars/maria/agenda-real/",
+            displayName = "Agenda real",
+            description = null,
+            color = null,
+            supportsVeEvent = true,
+            hasWritePrivilege = true,
+            syncToken = null
+        )
+        override suspend fun ensureAccount(server: String, user: String) = "acct-1"
+        override suspend fun getActiveAccountId() = "acct-1"
+        override suspend fun saveCalendars(accountId: String, calendars: List<CalendarInfo>) = Unit
+        override suspend fun selectWorkingCalendar(accountId: String, href: String) = Unit
+        override fun observeCalendars(accountId: String) = flowOf(listOf(selected))
+        override fun observeSelectedCalendar() = flowOf(selected)
+        override suspend fun disconnectLocal() = Unit
     }
 
     private class FakeCredentialStore : CredentialStore {

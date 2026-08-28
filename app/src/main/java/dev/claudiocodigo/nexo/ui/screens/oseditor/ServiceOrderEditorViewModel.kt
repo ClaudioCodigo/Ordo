@@ -38,6 +38,7 @@ class ServiceOrderEditorViewModel @Inject constructor(
     private var autosaveJob: Job? = null
     private val saveMutex = Mutex()
     private var revision = 0L
+    private var preparingPublication = false
 
     fun loadOrder(orderId: UUID) {
         viewModelScope.launch {
@@ -152,6 +153,20 @@ class ServiceOrderEditorViewModel @Inject constructor(
         }
     }
 
+    fun saveBeforePublication(onSaved: (UUID) -> Unit) {
+        if (preparingPublication) return
+        preparingPublication = true
+        val orderId = _state.value.id
+        autosaveJob?.cancel()
+        viewModelScope.launch {
+            try {
+                if (persistCurrent()) onSaved(orderId)
+            } finally {
+                preparingPublication = false
+            }
+        }
+    }
+
     private fun mutate(transform: (ServiceOrderEditorState) -> ServiceOrderEditorState) {
         revision++
         _state.update { transform(it).copy(saveState = EditorSaveState.Saving, validationError = null) }
@@ -166,20 +181,22 @@ class ServiceOrderEditorViewModel @Inject constructor(
         }
     }
 
-    private suspend fun persistCurrent() = saveMutex.withLock {
+    private suspend fun persistCurrent(): Boolean = saveMutex.withLock {
         val current = _state.value
         val structured = current.toStructured()
-        runCatching {
+        val result = runCatching {
             repository.saveStructuredOrder(structured)
             preferences.saveRecentSelections(
                 technician = current.technician,
                 client = current.clientName,
                 unit = current.unitName
             )
-        }.onSuccess {
+        }
+        result.onSuccess {
             _state.update { it.copy(saveState = EditorSaveState.Saved) }
         }.onFailure { e ->
             _state.update { it.copy(saveState = EditorSaveState.Error(e.message ?: "Erro ao salvar")) }
         }
+        result.isSuccess
     }
 }

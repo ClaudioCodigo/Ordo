@@ -187,6 +187,7 @@ fun MainScreen() {
                                 if (currentBackStack.size > 1) {
                                     currentBackStack.removeAt(currentBackStack.size - 1)
                                 }
+                                currentBackStack.add(Route.CentralSincronizacao)
                             }
                         )
                     }
@@ -239,8 +240,11 @@ fun MainScreen() {
                     is Route.EventoRemoto -> NavEntry(key) {
                         RemoteEventDetailScreen(
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
-                            onStartAttendance = { orderId ->
-                                currentBackStack.add(Route.EditorOS(orderId.toString()))
+                            onStartAttendance = { orderId, requiresReview ->
+                                currentBackStack.add(
+                                    if (requiresReview) Route.RevisaoConflito(orderId.toString())
+                                    else Route.EditorOS(orderId.toString())
+                                )
                             },
                             accountId = key.accountId,
                             calendarHref = key.calendarHref,

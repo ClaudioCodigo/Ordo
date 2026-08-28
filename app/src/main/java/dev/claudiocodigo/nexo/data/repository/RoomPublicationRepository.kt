@@ -10,6 +10,7 @@ import dev.claudiocodigo.nexo.domain.publication.OutboxAction
 import dev.claudiocodigo.nexo.domain.publication.OutboxOperation
 import dev.claudiocodigo.nexo.domain.publication.OutboxStatus
 import dev.claudiocodigo.nexo.domain.publication.PublicationRepository
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.util.UUID
@@ -45,18 +46,21 @@ class RoomPublicationRepository @Inject constructor(
             updatedAt = now
         )
 
-        val nextVersionNum = (storeDao.getVersionsByOrderId(snapshot.orderId).maxOfOrNull { it.versionNumber } ?: 0) + 1
-        val versionEntity = ServiceOrderVersionEntity(
-            id = UUID.randomUUID(),
-            orderId = snapshot.orderId,
-            versionNumber = nextVersionNum,
-            formattedDescription = snapshot.formattedDescription,
-            publishedEtag = null,
-            publishedAt = now
-        )
+        database.withTransaction {
+            val nextVersionNum =
+                (storeDao.getVersionsByOrderId(snapshot.orderId).maxOfOrNull { it.versionNumber } ?: 0) + 1
+            val versionEntity = ServiceOrderVersionEntity(
+                id = UUID.randomUUID(),
+                orderId = snapshot.orderId,
+                versionNumber = nextVersionNum,
+                formattedDescription = snapshot.formattedDescription,
+                publishedEtag = null,
+                publishedAt = now
+            )
 
-        database.serviceOrderStoreDao().upsertVersion(versionEntity)
-        outboxDao.insert(toEntity(operation))
+            storeDao.upsertVersion(versionEntity)
+            outboxDao.insert(toEntity(operation))
+        }
 
         return operation
     }

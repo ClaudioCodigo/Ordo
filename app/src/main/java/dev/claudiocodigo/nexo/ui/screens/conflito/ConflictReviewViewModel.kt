@@ -25,11 +25,15 @@ sealed interface ConflictUiState {
         val differences: List<FieldDifference>,
         val choices: Map<ConflictField, FieldChoice>,
         val remoteEtag: String?,
+        val remoteExternalId: String?,
         val remoteTitle: String,
         val remoteDemand: String,
         val remoteCause: String?,
         val remoteSolution: String?,
-        val remotePending: String?
+        val remotePending: String?,
+        val remoteRawSummary: String?,
+        val remoteRawDescription: String?,
+        val remoteRawIcs: String?
     ) : ConflictUiState
     data class Error(val message: String) : ConflictUiState
 }
@@ -55,18 +59,37 @@ class ConflictReviewViewModel @Inject constructor(
             val remoteEvent = if (key != null) {
                 calendarRepository.getEvent(key.accountId, key.calendarHref, key.eventHref)
             } else null
+            if (remoteEvent == null) {
+                _uiState.value = ConflictUiState.Error("Evento remoto atualizado não encontrado no cache")
+                return@launch
+            }
 
-            val remoteTitle = remoteEvent?.summary ?: local.title
+            val remoteSummaryExtracted = ServiceOrderExtractor.extractSummary(remoteEvent?.summary)
+            val remoteTitle = remoteSummaryExtracted.title
             val remoteDescExtracted = ServiceOrderExtractor.extractDescription(remoteEvent?.description)
+            val remoteExternalId = remoteSummaryExtracted.externalId ?: remoteDescExtracted.externalId
 
-            val diffs = ServiceOrderDiff.computeDifferences(
+            val changeAnalysis = ServiceOrderDiff.analyzeRemoteChange(
                 localOrder = local,
+                remoteExternalId = remoteExternalId,
                 remoteDemand = remoteDescExtracted.originalDemand,
                 remoteTitle = remoteTitle,
                 remoteCause = remoteDescExtracted.closureCause,
                 remoteSolution = remoteDescExtracted.closureSolution,
-                remotePending = remoteDescExtracted.closurePending
+                remotePending = remoteDescExtracted.closurePending,
+                remoteRawSummary = remoteEvent.summary,
+                remoteRawDescription = remoteEvent.description
             )
+
+            if (changeAnalysis.hasUnmappedRemoteTextChange) {
+                _uiState.value = ConflictUiState.Error(
+                    "O calendário mudou em um texto que não pode ser comparado com segurança. " +
+                        "O rascunho local e a base anterior foram preservados."
+                )
+                return@launch
+            }
+
+            val diffs = changeAnalysis.differences
 
             val initialChoices = diffs.associate { it.field to FieldChoice.KEEP_LOCAL }
 
@@ -75,11 +98,15 @@ class ConflictReviewViewModel @Inject constructor(
                 differences = diffs,
                 choices = initialChoices,
                 remoteEtag = remoteEvent?.etag,
+                remoteExternalId = remoteExternalId,
                 remoteTitle = remoteTitle,
                 remoteDemand = remoteDescExtracted.originalDemand,
                 remoteCause = remoteDescExtracted.closureCause,
                 remoteSolution = remoteDescExtracted.closureSolution,
-                remotePending = remoteDescExtracted.closurePending
+                remotePending = remoteDescExtracted.closurePending,
+                remoteRawSummary = remoteEvent?.summary,
+                remoteRawDescription = remoteEvent?.description,
+                remoteRawIcs = remoteEvent?.rawIcs
             )
         }
     }
@@ -98,12 +125,16 @@ class ConflictReviewViewModel @Inject constructor(
             val resolved = ServiceOrderDiff.applyChoices(
                 localOrder = ready.order,
                 choices = ready.choices,
+                remoteExternalId = ready.remoteExternalId,
                 remoteDemand = ready.remoteDemand,
                 remoteTitle = ready.remoteTitle,
                 remoteCause = ready.remoteCause,
                 remoteSolution = ready.remoteSolution,
                 remotePending = ready.remotePending,
-                newEtag = ready.remoteEtag
+                newEtag = ready.remoteEtag,
+                remoteRawSummary = ready.remoteRawSummary,
+                remoteRawDescription = ready.remoteRawDescription,
+                remoteRawIcs = ready.remoteRawIcs
             )
 
             serviceOrderRepository.saveStructuredOrder(resolved)

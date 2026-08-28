@@ -14,6 +14,7 @@ data class ExtractedSummary(
 )
 
 data class ExtractedDescription(
+    val externalId: String?,
     val preset: ServiceOrderPreset,
     val originalDemand: String,
     val updates: List<ServiceOrderUpdate>,
@@ -89,6 +90,7 @@ object ServiceOrderExtractor {
         val raw = rawDescription.orEmpty().trim()
         if (raw.isEmpty()) {
             return ExtractedDescription(
+                externalId = null,
                 preset = ServiceOrderPreset.DIAGNOSTICO_CORRECAO,
                 originalDemand = "",
                 updates = emptyList(),
@@ -108,6 +110,7 @@ object ServiceOrderExtractor {
         val updates = mutableListOf<ServiceOrderUpdate>()
         var updateSeq = 1
         var isCompleted = false
+        var externalId: String? = null
 
         for (line in lines) {
             if (line.isEmpty()) continue
@@ -116,8 +119,15 @@ object ServiceOrderExtractor {
             if (colonIdx > 0) {
                 val label = line.substring(0, colonIdx).trim().lowercase()
                 val content = line.substring(colonIdx + 1).trim()
+                val isOfficialIdLabel = label == "os" || label.contains("da os") ||
+                    label.startsWith("nº") || label.startsWith("n°") || label.startsWith("no da os")
 
                 when {
+                    isOfficialIdLabel -> {
+                        externalId = OS_NUMBER_REGEX.find(content)?.groupValues?.get(1)
+                        currentSection = "header"
+                        continue
+                    }
                     label.startsWith("os") || label.startsWith("cliente") || label.startsWith("técnico") ||
                     label.startsWith("tecnico") || label.startsWith("categoria") || label.startsWith("unidade") ||
                     label.startsWith("data") -> {
@@ -191,6 +201,7 @@ object ServiceOrderExtractor {
         }
 
         return ExtractedDescription(
+            externalId = externalId,
             preset = preset,
             originalDemand = originalDemand,
             updates = updates,

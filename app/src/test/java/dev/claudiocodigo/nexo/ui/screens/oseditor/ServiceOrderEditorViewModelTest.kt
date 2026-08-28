@@ -102,6 +102,29 @@ class ServiceOrderEditorViewModelTest {
         assertTrue(validAfter)
     }
 
+    @Test
+    fun saveBeforePublication_persistsLatestEditBeforeNavigating() = runTest(testDispatcher) {
+        val orderId = UUID.randomUUID()
+        repository.orders[orderId] = StructuredServiceOrder(
+            id = orderId,
+            title = "Título antigo",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            originalDemand = "Demanda"
+        )
+        viewModel.loadOrder(orderId)
+        testDispatcher.scheduler.advanceUntilIdle()
+        viewModel.onTitleChange("Título final ainda não salvo")
+        var titleSeenAfterNavigation: String? = null
+
+        viewModel.saveBeforePublication {
+            titleSeenAfterNavigation = repository.orders[it]?.title
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("Título final ainda não salvo", titleSeenAfterNavigation)
+    }
+
     private class FakeRecentPreferences : RecentServiceOrderPreferences {
         val techFlow = MutableStateFlow<String?>(null)
         val clientFlow = MutableStateFlow<String?>(null)

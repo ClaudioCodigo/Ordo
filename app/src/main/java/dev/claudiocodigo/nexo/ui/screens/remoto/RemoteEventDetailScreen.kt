@@ -43,7 +43,7 @@ import java.util.UUID
 @Composable
 fun RemoteEventDetailScreen(
     onBack: () -> Unit,
-    onStartAttendance: (UUID) -> Unit,
+    onStartAttendance: (UUID, Boolean) -> Unit,
     accountId: String,
     calendarHref: String,
     href: String,
@@ -87,7 +87,13 @@ fun RemoteEventDetailScreen(
                         ) {
                             Icon(Icons.Rounded.PlayArrow, contentDescription = null)
                             Spacer(modifier = Modifier.padding(horizontal = 4.dp))
-                            Text("Iniciar Atendimento (OS)")
+                            Text(
+                                if ((state as RemoteEventDetailUiState.Success).linkedOrderId == null) {
+                                    "Iniciar Atendimento (OS)"
+                                } else {
+                                    "Continuar Atendimento"
+                                }
+                            )
                         }
                     }
                 }

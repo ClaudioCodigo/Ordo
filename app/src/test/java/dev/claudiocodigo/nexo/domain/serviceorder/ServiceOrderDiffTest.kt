@@ -65,4 +65,98 @@ class ServiceOrderDiffTest {
         assertEquals("\"etag-renewed\"", resolved.baseSnapshot?.etag)
         assertEquals(PublicationState.LOCAL_DRAFT, resolved.publicationState)
     }
+
+    @Test
+    fun officialNumberDifference_requiresExplicitChoice() {
+        val order = StructuredServiceOrder(
+            id = UUID.randomUUID(),
+            externalId = null,
+            title = "Atendimento",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"old\"",
+                rawIcs = "old",
+                rawSummary = "PIER - ???? - Atendimento",
+                rawDescription = "Demanda"
+            )
+        )
+        val differences = ServiceOrderDiff.computeDifferences(
+            localOrder = order,
+            remoteExternalId = "15455",
+            remoteDemand = order.originalDemand,
+            remoteTitle = order.title
+        )
+
+        assertEquals(ConflictField.EXTERNAL_ID, differences.first().field)
+
+        val accepted = ServiceOrderDiff.applyChoices(
+            localOrder = order,
+            choices = mapOf(ConflictField.EXTERNAL_ID to FieldChoice.USE_REMOTE),
+            remoteExternalId = "15455",
+            remoteDemand = order.originalDemand,
+            remoteTitle = order.title,
+            remoteCause = null,
+            remoteSolution = null,
+            remotePending = null,
+            newEtag = "\"new\"",
+            remoteRawSummary = "PIER - 15455 - Atendimento",
+            remoteRawDescription = "Demanda",
+            remoteRawIcs = "new"
+        )
+
+        assertEquals("15455", accepted.externalId)
+        assertEquals("PIER - 15455 - Atendimento", accepted.baseSnapshot?.rawSummary)
+        assertEquals("new", accepted.baseSnapshot?.rawIcs)
+    }
+
+    @Test
+    fun computeDifferences_ignoresLocalOnlyChangesWhenRemoteStillMatchesBase() {
+        val order = StructuredServiceOrder(
+            id = UUID.randomUUID(),
+            title = "Meu título local",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            originalDemand = "Minha demanda local",
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"old\"",
+                rawIcs = "old",
+                rawSummary = "Título do calendário",
+                rawDescription = "Demanda do calendário"
+            )
+        )
+
+        val differences = ServiceOrderDiff.computeDifferences(
+            localOrder = order,
+            remoteDemand = "Demanda do calendário",
+            remoteTitle = "Título do calendário"
+        )
+
+        assertTrue(differences.isEmpty())
+    }
+
+    @Test
+    fun computeDifferences_ignoresRemoteChangeAlreadyReflectedLocally() {
+        val order = StructuredServiceOrder(
+            id = UUID.randomUUID(),
+            title = "Título conciliado",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            originalDemand = "Demanda conciliada",
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"old\"",
+                rawIcs = "old",
+                rawSummary = "Título antigo",
+                rawDescription = "Demanda antiga"
+            )
+        )
+
+        val differences = ServiceOrderDiff.computeDifferences(
+            localOrder = order,
+            remoteDemand = "Demanda conciliada",
+            remoteTitle = "Título conciliado"
+        )
+
+        assertTrue(differences.isEmpty())
+    }
 }

@@ -58,7 +58,7 @@ fun ConflictReviewScreen(
         modifier = Modifier.testTag("screen_conflict_review"),
         topBar = {
             TopAppBar(
-                title = { Text("Revisão de Conflito (412)") },
+                title = { Text("Revisão do Calendário") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Voltar")
@@ -105,7 +105,7 @@ fun ConflictReviewScreen(
                             Icon(Icons.Rounded.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                             Spacer(modifier = Modifier.padding(horizontal = 6.dp))
                             Text(
-                                text = "Este evento foi alterado no servidor enquanto você editava. Escolha qual valor deseja manter para cada campo:",
+                                text = "O calendário contém informações novas ou diferentes. Confira cada campo antes de continuar:",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onErrorContainer
                             )
@@ -140,7 +140,7 @@ fun ConflictReviewScreen(
                                         FilterChip(
                                             selected = currentChoice == FieldChoice.USE_REMOTE,
                                             onClick = { viewModel.onChoiceSelected(diff.field, FieldChoice.USE_REMOTE) },
-                                            label = { Text("Usar Remoto") }
+                                            label = { Text("Usar Calendário") }
                                         )
                                     }
 

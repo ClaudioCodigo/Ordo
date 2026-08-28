@@ -43,12 +43,23 @@ class ServiceOrderExtractionTest {
 
         val result = ServiceOrderExtractor.extractDescription(raw)
 
+        assertEquals("15428", result.externalId)
         assertEquals(ServiceOrderPreset.DIAGNOSTICO_CORRECAO, result.preset)
         assertEquals("Equipamento reiniciando sozinho.", result.originalDemand)
         assertEquals("Baterias desgastadas e estufadas.", result.closureCause)
         assertEquals("Substituído banco de 4 baterias 12V 7Ah.", result.closureSolution)
         assertEquals("Nenhuma.", result.closurePending)
         assertEquals(raw, result.rawDescription)
+    }
+
+    @Test
+    fun officialNumber_prefersSummaryAndFallsBackToDescriptionHeader() {
+        val summary = ServiceOrderExtractor.extractSummary("PIER - 15445 - CLAUDIO - REDE - TESTE")
+        val description = ServiceOrderExtractor.extractDescription("Nº da OS: 16789\n\nDemanda:\nTeste")
+
+        assertEquals("15445", summary.externalId)
+        assertEquals("16789", description.externalId)
+        assertEquals("15445", summary.externalId ?: description.externalId)
     }
 
     @Test

@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Assert.assertThrows
 
 class IcsDocumentEditorTest {
 
@@ -70,6 +71,27 @@ class IcsDocumentEditorTest {
         assertTrue(lines.size >= 2)
         lines.forEach { line ->
             assertTrue(line.toByteArray(Charsets.UTF_8).size <= 75)
+        }
+    }
+
+    @Test
+    fun updateVEvent_rejectsMissingUidInsteadOfPublishingOriginalIcs() {
+        val originalIcs = """
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            UID:uid-real-diferente-do-arquivo
+            DESCRIPTION:Descrição antiga
+            END:VEVENT
+            END:VCALENDAR
+        """.trimIndent()
+
+        assertThrows(IllegalArgumentException::class.java) {
+            IcsDocumentEditor.updateVEvent(
+                rawIcs = originalIcs,
+                targetUid = "nome-do-arquivo",
+                targetRecurrenceId = null,
+                newDescription = "Descrição nova"
+            )
         }
     }
 }

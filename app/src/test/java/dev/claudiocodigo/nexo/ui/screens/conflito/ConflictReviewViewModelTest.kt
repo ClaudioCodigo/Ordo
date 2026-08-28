@@ -98,6 +98,7 @@ class ConflictReviewViewModelTest {
         val ready = state as ConflictUiState.Ready
         assertEquals(2, ready.differences.size)
         assertEquals("\"etag-2\"", ready.remoteEtag)
+        assertTrue(ready.choices.values.all { it == FieldChoice.KEEP_LOCAL })
 
         viewModel.onChoiceSelected(ConflictField.TITLE, FieldChoice.USE_REMOTE)
         val updatedReady = viewModel.uiState.value as ConflictUiState.Ready

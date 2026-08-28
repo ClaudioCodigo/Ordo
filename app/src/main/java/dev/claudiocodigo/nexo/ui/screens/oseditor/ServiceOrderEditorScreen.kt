@@ -117,8 +117,7 @@ fun ServiceOrderEditorScreen(
                     Button(
                         onClick = {
                             if (viewModel.validateForPublication()) {
-                                viewModel.flushNow()
-                                onNavigateToPreview(state.id)
+                                viewModel.saveBeforePublication(onNavigateToPreview)
                             }
                         },
                         modifier = Modifier

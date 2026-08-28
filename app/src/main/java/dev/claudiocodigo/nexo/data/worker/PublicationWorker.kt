@@ -17,13 +17,14 @@ class PublicationWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val outcome = coordinator.drainNext()
-        return when (outcome) {
-            is DrainOutcome.QueueEmpty -> Result.success()
-            is DrainOutcome.Success -> Result.success()
-            is DrainOutcome.Conflict -> Result.success() // Terminal state: persisted in Room for user review
-            is DrainOutcome.PermanentFailure -> Result.success() // Terminal state: persisted in Room
-            is DrainOutcome.TransientFailure -> Result.retry() // Network/Timeout: retry via WorkManager
+        while (true) {
+            when (coordinator.drainNext()) {
+                is DrainOutcome.QueueEmpty -> return Result.success()
+                is DrainOutcome.Success -> Unit
+                is DrainOutcome.Conflict -> Unit // Terminal state persisted; continue with the rest of the queue.
+                is DrainOutcome.PermanentFailure -> Unit // One bad item must not block later publications.
+                is DrainOutcome.TransientFailure -> return Result.retry()
+            }
         }
     }
 

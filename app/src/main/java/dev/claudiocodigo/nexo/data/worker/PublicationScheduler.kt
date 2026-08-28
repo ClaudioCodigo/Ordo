@@ -30,7 +30,7 @@ open class PublicationScheduler @Inject constructor(
 
         workManager.enqueueUniqueWork(
             PublicationWorker.UNIQUE_WORK_NAME,
-            ExistingWorkPolicy.KEEP,
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }

@@ -72,7 +72,9 @@ object IcsDocumentEditor {
             i++
         }
 
-        // If target was not found in existing VEVENTs, but document exists, return modified or original
+        require(foundTarget) {
+            "VEVENT alvo não encontrado no ICS; publicação cancelada para evitar envio sem alterações"
+        }
         return outputLines.joinToString(doc.lineEnding)
     }
 
