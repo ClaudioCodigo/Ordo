@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.CloudUpload
 import androidx.compose.material.icons.rounded.DoneAll
 import androidx.compose.material.icons.rounded.Send
@@ -21,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -49,6 +52,7 @@ fun ServiceOrderEditorScreen(
     orderId: UUID,
     onBack: () -> Unit,
     onNavigateToPreview: (UUID) -> Unit,
+    onNavigateToSummaryExtraction: ((UUID) -> Unit)? = null,
     viewModel: ServiceOrderEditorViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -180,6 +184,19 @@ fun ServiceOrderEditorScreen(
             Spacer(modifier = Modifier.height(10.dp))
 
             SectionContainer(title = "1. Identificação do Atendimento") {
+                if (onNavigateToSummaryExtraction != null) {
+                    OutlinedButton(
+                        onClick = { onNavigateToSummaryExtraction(orderId) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .testTag("btn_open_summary_assistant")
+                    ) {
+                        Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.padding(horizontal = 4.dp))
+                        Text("Assistente de Extração do Resumo", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
                 IdentificationSection(
                     externalId = state.externalId,
                     title = state.title,

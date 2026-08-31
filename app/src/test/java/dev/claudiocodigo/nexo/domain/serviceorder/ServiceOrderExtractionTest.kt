@@ -10,12 +10,26 @@ class ServiceOrderExtractionTest {
 
     @Test
     fun extractSummary_parsesOsNumberAndSegmentsCleanly() {
-        val raw = "OS 15428 - Hospital São Lucas - Manutenção Nobreak"
+        val raw = "OS 15428 - Hospital São Lucas - Centro Cirúrgico - Manutenção Nobreak"
         val result = ServiceOrderExtractor.extractSummary(raw)
 
         assertEquals("15428", result.externalId)
-        assertEquals("Hospital São Lucas - Manutenção Nobreak", result.title)
+        assertEquals("Hospital São Lucas", result.clientName)
+        assertEquals("Centro Cirúrgico", result.unitName)
+        assertEquals("Manutenção Nobreak", result.title)
         assertEquals(raw, result.rawSummary)
+    }
+
+    @Test
+    fun extractSummary_parsesExplicitLabels() {
+        val raw = "OS: 15428 | Cli: Hospital ABC | Unid: Bloco 2 | Tec: Claudio | Tit: Troca de Placa"
+        val result = ServiceOrderExtractor.extractSummary(raw)
+
+        assertEquals("15428", result.externalId)
+        assertEquals("Hospital ABC", result.clientName)
+        assertEquals("Bloco 2", result.unitName)
+        assertEquals("Claudio", result.technician)
+        assertEquals("Troca de Placa", result.title)
     }
 
     @Test
@@ -23,12 +37,14 @@ class ServiceOrderExtractionTest {
         val raw1 = "???? - Banco Central - Troca de Bateria"
         val result1 = ServiceOrderExtractor.extractSummary(raw1)
         assertNull(result1.externalId)
-        assertEquals("Banco Central - Troca de Bateria", result1.title)
+        assertEquals("Banco Central", result1.clientName)
+        assertEquals("Troca de Bateria", result1.title)
 
         val raw2 = "SEM OS - Unidade Centro - Diagnóstico"
         val result2 = ServiceOrderExtractor.extractSummary(raw2)
         assertNull(result2.externalId)
-        assertEquals("Unidade Centro - Diagnóstico", result2.title)
+        assertEquals("Unidade Centro", result2.clientName)
+        assertEquals("Diagnóstico", result2.title)
     }
 
     @Test
@@ -43,23 +59,12 @@ class ServiceOrderExtractionTest {
 
         val result = ServiceOrderExtractor.extractDescription(raw)
 
-        assertEquals("15428", result.externalId)
         assertEquals(ServiceOrderPreset.DIAGNOSTICO_CORRECAO, result.preset)
         assertEquals("Equipamento reiniciando sozinho.", result.originalDemand)
         assertEquals("Baterias desgastadas e estufadas.", result.closureCause)
         assertEquals("Substituído banco de 4 baterias 12V 7Ah.", result.closureSolution)
         assertEquals("Nenhuma.", result.closurePending)
         assertEquals(raw, result.rawDescription)
-    }
-
-    @Test
-    fun officialNumber_prefersSummaryAndFallsBackToDescriptionHeader() {
-        val summary = ServiceOrderExtractor.extractSummary("PIER - 15445 - CLAUDIO - REDE - TESTE")
-        val description = ServiceOrderExtractor.extractDescription("Nº da OS: 16789\n\nDemanda:\nTeste")
-
-        assertEquals("15445", summary.externalId)
-        assertEquals("16789", description.externalId)
-        assertEquals("15445", summary.externalId ?: description.externalId)
     }
 
     @Test
@@ -70,6 +75,6 @@ class ServiceOrderExtractionTest {
         assertEquals(raw, result.originalDemand)
         assertNull(result.closureCause)
         assertNull(result.closureSolution)
-        assertEquals(0, result.updates.size)
+        assertEquals(ServiceOrderPreset.SERVICO_SOLICITADO, result.preset)
     }
 }

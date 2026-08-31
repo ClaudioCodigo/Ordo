@@ -8,10 +8,10 @@ import java.util.Locale
  * Deterministic renderer that produces standardized iCalendar DESCRIPTION text.
  *
  * Rules:
- * - Update projection: Identification + Original Demand + Chronological Updates + Current Pendencies;
- * - Completion projection: Identification + Original Demand + "Estado: Concluído" + Cause + Solution + Pendencies;
+ * - Update projection: Identification + Original Demand + Chronological Updates + Equipments + Current Pendencies;
+ * - Completion projection: Identification + Original Demand + Cause + Solution + Equipments + Pendencies + "Estado: Concluído" + "Data de Conclusão";
  * - Historical intermediate updates are omitted from the remote final completion text (preserved locally in Room);
- * - Execution date (dd/MM/yyyy) is required in the body; time of day is strictly omitted (belongs to DTSTART/DTEND).
+ * - Execution date (dd/MM/yyyy) is placed in the conclusion section; time of day is strictly omitted (belongs to DTSTART/DTEND).
  */
 object ServiceOrderRenderer {
 
@@ -63,10 +63,6 @@ object ServiceOrderRenderer {
         appendLine(order.originalDemand.ifBlank { "Não informada" }.trim())
         appendLine()
 
-        appendLine("Estado: Concluído")
-        appendLine("Data de Conclusão: ${formatDate(executionDate)}")
-        appendLine()
-
         if (order.preset == ServiceOrderPreset.DIAGNOSTICO_CORRECAO) {
             order.closureCause?.takeIf { it.isNotBlank() }?.let {
                 appendLine("Causa:")
@@ -94,6 +90,10 @@ object ServiceOrderRenderer {
         val pending = order.closurePending?.trim()
         appendLine("Pendências:")
         appendLine(if (pending.isNullOrBlank()) "Nenhuma" else pending)
+        appendLine()
+
+        appendLine("Estado: Concluído")
+        appendLine("Data de Conclusão: ${formatDate(executionDate)}")
     }.trim()
 
     private fun appendHeader(builder: StringBuilder, order: StructuredServiceOrder) {
@@ -101,7 +101,6 @@ object ServiceOrderRenderer {
         builder.appendLine("OS: $osNumber")
         builder.appendLine("Cliente: ${order.clientName.ifBlank { "Não informado" }} - ${order.unitName.ifBlank { "Unidade não informada" }}")
         order.technician?.takeIf { it.isNotBlank() }?.let { builder.appendLine("Técnico: $it") }
-        order.category?.takeIf { it.isNotBlank() }?.let { builder.appendLine("Categoria: $it") }
         builder.appendLine()
     }
 }

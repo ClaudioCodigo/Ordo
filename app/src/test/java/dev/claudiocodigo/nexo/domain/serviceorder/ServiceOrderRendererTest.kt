@@ -1,6 +1,5 @@
 package dev.claudiocodigo.nexo.domain.serviceorder
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +37,7 @@ class ServiceOrderRendererTest {
         assertTrue(rendered.contains("OS: 15428"))
         assertTrue(rendered.contains("Hospital São Lucas - Centro Cirúrgico"))
         assertTrue(rendered.contains("Técnico: João Silva"))
+        assertFalse(rendered.contains("Categoria:"))
         assertTrue(rendered.contains("Demanda:\nNobreak desarmando na troca de rede."))
         assertTrue(rendered.contains("Atualizações:\n[26/08/2026]: Chegada ao local e início dos testes."))
         assertTrue(rendered.contains("Pendências:\nAguardando chegada de novo fusível."))
@@ -70,12 +70,15 @@ class ServiceOrderRendererTest {
 
         val rendered = ServiceOrderRenderer.renderCompletion(order, completionDate)
 
-        assertTrue(rendered.contains("Estado: Concluído"))
-        assertTrue(rendered.contains("Data de Conclusão: 27/08/2026"))
+        assertTrue(rendered.contains("OS: 15428"))
+        assertTrue(rendered.contains("Hospital São Lucas - Centro Cirúrgico"))
+        assertFalse(rendered.contains("Categoria:"))
+        assertTrue(rendered.contains("Demanda:\nNobreak desarmando na troca de rede."))
         assertTrue(rendered.contains("Causa:\nBateria com célula em curto-circuito."))
         assertTrue(rendered.contains("Solução:\nSubstituídas as 4 baterias e calibrado inversor."))
         assertTrue(rendered.contains("Pendências:\nNenhuma"))
-        // Intermediate updates are kept local and omitted from the final remote description
+        assertTrue(rendered.contains("Estado: Concluído"))
+        assertTrue(rendered.contains("Data de Conclusão: 27/08/2026"))
         assertFalse(rendered.contains("Update intermediário local"))
     }
 }

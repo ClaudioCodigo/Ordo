@@ -7,10 +7,13 @@ import java.util.UUID
 
 data class ExtractedSummary(
     val externalId: String?,
-    val technician: String?,
-    val category: String?,
+    val clientName: String? = null,
+    val unitName: String? = null,
+    val technician: String? = null,
+    val category: String? = null,
     val title: String,
-    val rawSummary: String
+    val rawSummary: String,
+    val segments: List<String> = emptyList()
 )
 
 data class ExtractedDescription(
@@ -42,47 +45,134 @@ object ServiceOrderExtractor {
         if (raw.isEmpty()) {
             return ExtractedSummary(
                 externalId = null,
+                clientName = null,
+                unitName = null,
                 technician = null,
                 category = null,
                 title = "Atendimento sem título",
-                rawSummary = raw
+                rawSummary = raw,
+                segments = emptyList()
             )
         }
 
-        // Split by common segment delimiters (dash, pipe) outside quotes
-        val segments = raw.split(Regex("""\s+[-|–—]\s+""")).map { it.trim() }.filter { it.isNotEmpty() }
+        // Split by common segment delimiters outside quotes: dash, pipe, en-dash, em-dash
+        val rawSegments = raw.split(Regex("""\s+[-|–—]\s+|\s*\|\s*""")).map { it.trim() }.filter { it.isNotEmpty() }
 
         var externalId: String? = null
-        var remaining = segments.toMutableList()
+        var clientName: String? = null
+        var unitName: String? = null
+        var technician: String? = null
+        var category: String? = null
+        var explicitTitle: String? = null
+        var hasProvisionalPlaceholder = false
 
-        // Detect OS number in first segment or full string
-        for (i in segments.indices) {
-            val seg = segments[i]
-            if (seg.equals("????", ignoreCase = true) || seg.equals("SEM OS", ignoreCase = true)) {
-                remaining.removeAt(i)
-                break
-            }
-            val match = OS_NUMBER_REGEX.find(seg)
-            if (match != null) {
-                externalId = match.groupValues[1]
-                val cleaned = seg.replace(match.value, "").trim().removePrefix("-").removePrefix(":").trim()
-                if (cleaned.isEmpty()) {
-                    remaining.removeAt(i)
-                } else {
-                    remaining[i] = cleaned
+        val unassigned = mutableListOf<String>()
+
+        for (seg in rawSegments) {
+            // Check for explicit label prefix
+            val colonIdx = seg.indexOf(':')
+            if (colonIdx > 0) {
+                val label = seg.substring(0, colonIdx).trim().lowercase()
+                val value = seg.substring(colonIdx + 1).trim()
+                when {
+                    label in setOf("os", "nº", "no", "num") -> {
+                        if (value.equals("????", ignoreCase = true) || value.equals("SEM OS", ignoreCase = true)) {
+                            hasProvisionalPlaceholder = true
+                        } else {
+                            val match = OS_NUMBER_REGEX.find(value)
+                            externalId = match?.groupValues?.get(1) ?: value
+                        }
+                        continue
+                    }
+                    label in setOf("cli", "cliente", "empresa") -> {
+                        clientName = value
+                        continue
+                    }
+                    label in setOf("unid", "unidade", "setor", "local", "sala") -> {
+                        unitName = value
+                        continue
+                    }
+                    label in setOf("tec", "tecnico", "técnico", "resp", "responsavel", "responsável") -> {
+                        technician = value
+                        continue
+                    }
+                    label in setOf("cat", "categoria", "tipo") -> {
+                        category = value
+                        continue
+                    }
+                    label in setOf("tit", "titulo", "título", "serv", "servico", "serviço", "assunto") -> {
+                        explicitTitle = value
+                        continue
+                    }
                 }
-                break
+            }
+
+            // Check if segment is placeholder for no OS
+            if (seg.equals("????", ignoreCase = true) || seg.equals("SEM OS", ignoreCase = true) || seg.equals("SEM_OS", ignoreCase = true)) {
+                hasProvisionalPlaceholder = true
+                externalId = null
+                continue
+            }
+
+            // Check if standalone segment matches OS number
+            val osMatch = OS_NUMBER_REGEX.find(seg)
+            if (externalId == null && osMatch != null && (seg.startsWith("OS", ignoreCase = true) || seg.startsWith("Nº", ignoreCase = true) || seg.all { it.isDigit() })) {
+                externalId = osMatch.groupValues[1]
+                val cleaned = seg.replace(osMatch.value, "").trim().removePrefix("-").removePrefix(":").trim()
+                if (cleaned.isNotEmpty()) {
+                    unassigned.add(cleaned)
+                }
+                continue
+            }
+
+            unassigned.add(seg)
+        }
+
+        // Positional assignment of unassigned segments
+        when (unassigned.size) {
+            1 -> {
+                if (explicitTitle == null) explicitTitle = unassigned[0]
+            }
+            2 -> {
+                if (clientName == null && (externalId != null || hasProvisionalPlaceholder)) {
+                    clientName = unassigned[0]
+                    if (explicitTitle == null) explicitTitle = unassigned[1]
+                } else if (explicitTitle == null) {
+                    explicitTitle = unassigned.joinToString(" - ")
+                }
+            }
+            3 -> {
+                if (clientName == null) clientName = unassigned[0]
+                if (unitName == null) unitName = unassigned[1]
+                if (explicitTitle == null) explicitTitle = unassigned[2]
+            }
+            else -> {
+                if (unassigned.isNotEmpty()) {
+                    if (clientName == null && unassigned.size >= 2) clientName = unassigned[0]
+                    if (unitName == null && unassigned.size >= 3) unitName = unassigned[1]
+                    if (explicitTitle == null) {
+                        val startIndex = when {
+                            clientName == unassigned.getOrNull(0) && unitName == unassigned.getOrNull(1) -> 2
+                            clientName == unassigned.getOrNull(0) -> 1
+                            else -> 0
+                        }
+                        explicitTitle = unassigned.drop(startIndex).joinToString(" - ").ifBlank { raw }
+                    }
+                }
             }
         }
 
-        val title = if (remaining.isNotEmpty()) remaining.joinToString(" - ") else raw
+        val finalTitle = explicitTitle ?: unassigned.joinToString(" - ").ifBlank { raw }
 
         return ExtractedSummary(
             externalId = externalId,
-            technician = null,
-            category = null,
-            title = title,
-            rawSummary = raw
+            clientName = clientName,
+            unitName = unitName,
+            technician = technician,
+            category = category,
+            title = finalTitle,
+            rawSummary = raw,
+            segments = rawSegments
         )
     }
 
@@ -119,16 +209,17 @@ object ServiceOrderExtractor {
             if (colonIdx > 0) {
                 val label = line.substring(0, colonIdx).trim().lowercase()
                 val content = line.substring(colonIdx + 1).trim()
-                val isOfficialIdLabel = label == "os" || label.contains("da os") ||
-                    label.startsWith("nº") || label.startsWith("n°") || label.startsWith("no da os")
 
                 when {
-                    isOfficialIdLabel -> {
-                        externalId = OS_NUMBER_REGEX.find(content)?.groupValues?.get(1)
+                    label.startsWith("os") -> {
                         currentSection = "header"
+                        if (content.isNotEmpty() && !content.equals("SEM OS", ignoreCase = true) && !content.equals("????", ignoreCase = true)) {
+                            val match = OS_NUMBER_REGEX.find(content)
+                            externalId = match?.groupValues?.get(1) ?: content
+                        }
                         continue
                     }
-                    label.startsWith("os") || label.startsWith("cliente") || label.startsWith("técnico") ||
+                    label.startsWith("cliente") || label.startsWith("técnico") ||
                     label.startsWith("tecnico") || label.startsWith("categoria") || label.startsWith("unidade") ||
                     label.startsWith("data") -> {
                         currentSection = "header"
@@ -183,41 +274,41 @@ object ServiceOrderExtractor {
                 "pending" -> pendingBuffer.appendLine(line)
                 "update" -> {
                     if (updates.isNotEmpty()) {
-                        val last = updates.last()
-                        updates[updates.lastIndex] = last.copy(text = (last.text + "\n" + line).trim())
-                    } else {
-                        demandBuffer.appendLine(line)
+                        val last = updates.removeAt(updates.lastIndex)
+                        updates.add(last.copy(text = "${last.text}\n$line"))
                     }
                 }
                 else -> demandBuffer.appendLine(line)
             }
         }
 
-        val originalDemand = demandBuffer.toString().trim().ifEmpty { raw }
-        val preset = if (raw.contains("solicitação", ignoreCase = true) && !raw.contains("diagnóstico", ignoreCase = true)) {
-            ServiceOrderPreset.SERVICO_SOLICITADO
-        } else {
+        val demand = demandBuffer.toString().trim()
+        val cause = causeBuffer.toString().trim().takeIf { it.isNotEmpty() }
+        val solution = solutionBuffer.toString().trim().takeIf { it.isNotEmpty() }
+        val pending = pendingBuffer.toString().trim().takeIf { it.isNotEmpty() }
+
+        val preset = if (cause != null) {
             ServiceOrderPreset.DIAGNOSTICO_CORRECAO
+        } else {
+            ServiceOrderPreset.SERVICO_SOLICITADO
         }
 
         return ExtractedDescription(
             externalId = externalId,
             preset = preset,
-            originalDemand = originalDemand,
+            originalDemand = demand.ifBlank { raw },
             updates = updates,
-            closureCause = causeBuffer.toString().trim().takeIf { it.isNotEmpty() },
-            closureSolution = solutionBuffer.toString().trim().takeIf { it.isNotEmpty() },
-            closurePending = pendingBuffer.toString().trim().takeIf { it.isNotEmpty() },
+            closureCause = cause,
+            closureSolution = solution,
+            closurePending = pending,
             rawDescription = raw
         )
     }
 
-    private fun parseDateFromHeader(header: String): Long? {
-        val match = Regex("""\b(\d{2}/\d{2}/\d{4})\b""").find(header) ?: return null
-        return try {
-            SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("pt-BR")).parse(match.groupValues[1])?.time
-        } catch (_: Exception) {
-            null
-        }
+    private fun parseDateFromHeader(label: String): Long? {
+        val dateMatch = Regex("""\b(\d{1,2}/\d{1,2}/\d{2,4})\b""").find(label) ?: return null
+        return runCatching {
+            SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("pt-BR")).parse(dateMatch.value)?.time
+        }.getOrNull()
     }
 }

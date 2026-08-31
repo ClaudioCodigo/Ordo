@@ -35,6 +35,9 @@ sealed interface Route {
     data class RevisaoConflito(val orderId: String) : Route
 
     @Serializable
+    data class ExtracaoResumo(val orderId: String) : Route
+
+    @Serializable
     data object DiagnosticoBateria : Route
 
     @Serializable
