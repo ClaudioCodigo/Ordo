@@ -45,6 +45,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HojeScreen(
@@ -54,6 +58,7 @@ fun HojeScreen(
     viewModel: HojeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val isSyncing = (uiState as? HojeUiState.Success)?.isSyncing == true
 
     Scaffold(
         modifier = Modifier.testTag("screen_hoje"),
@@ -62,11 +67,26 @@ fun HojeScreen(
                 title = {
                     Column {
                         Text(text = stringResource(R.string.hoje_title))
+                        val successState = uiState as? HojeUiState.Success
+                        val subtitle = if (successState?.isSyncing == true) {
+                            "Sincronizando com Nextcloud…"
+                        } else {
+                            syncLabel(successState?.syncState)
+                        }
                         Text(
-                            text = syncLabel((uiState as? HojeUiState.Success)?.syncState),
+                            text = subtitle,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.outline
+                            color = if (successState?.isSyncing == true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                         )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.syncNow() },
+                        enabled = !isSyncing,
+                        modifier = Modifier.testTag("btn_sync_hoje")
+                    ) {
+                        Icon(Icons.Rounded.Sync, contentDescription = "Sincronizar com Nextcloud")
                     }
                 }
             )
@@ -77,15 +97,21 @@ fun HojeScreen(
             }
         }
     ) { padding ->
-        when (val state = uiState) {
-            HojeUiState.Loading -> Text("Carregando ordens locais…", modifier = Modifier.padding(padding).testTag("hoje_loading"))
-            is HojeUiState.Success -> {
-                HojeContent(
-                    padding = padding,
-                    state = state,
-                    onNavigateToDetails = onNavigateToDetails,
-                    onNavigateToRemoteEvent = onNavigateToRemoteEvent
-                )
+        PullToRefreshBox(
+            isRefreshing = isSyncing,
+            onRefresh = { viewModel.syncNow() },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
+            when (val state = uiState) {
+                HojeUiState.Loading -> Text("Carregando ordens locais…", modifier = Modifier.padding(16.dp).testTag("hoje_loading"))
+                is HojeUiState.Success -> {
+                    HojeContent(
+                        padding = PaddingValues(0.dp),
+                        state = state,
+                        onNavigateToDetails = onNavigateToDetails,
+                        onNavigateToRemoteEvent = onNavigateToRemoteEvent
+                    )
+                }
             }
         }
     }

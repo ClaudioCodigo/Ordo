@@ -3,11 +3,13 @@ package dev.claudiocodigo.nexo.ui.screens.hoje
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.claudiocodigo.nexo.domain.caldav.CalendarSyncCoordinator
 import dev.claudiocodigo.nexo.domain.caldav.CalendarSyncState
 import dev.claudiocodigo.nexo.domain.caldav.EventColor
 import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
+import dev.claudiocodigo.nexo.domain.publication.OutboxOperation
 import dev.claudiocodigo.nexo.domain.publication.PublicationRepository
 import dev.claudiocodigo.nexo.domain.repository.CalendarRepository
 import dev.claudiocodigo.nexo.domain.repository.ServiceOrderRepository
@@ -16,10 +18,13 @@ import dev.claudiocodigo.nexo.domain.serviceorder.OperationalOrderProjection
 import dev.claudiocodigo.nexo.domain.serviceorder.OperationalStatus
 import dev.claudiocodigo.nexo.domain.serviceorder.PublicationState
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderUpdate
+import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import dev.claudiocodigo.nexo.domain.time.ClockProvider
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Duration
@@ -33,16 +38,43 @@ class HojeViewModel @Inject constructor(
     private val repository: ServiceOrderRepository,
     private val calendarRepository: CalendarRepository,
     private val clock: ClockProvider,
-    private val publicationRepository: PublicationRepository? = null
+    private val publicationRepository: PublicationRepository? = null,
+    private val syncCoordinator: CalendarSyncCoordinator? = null
 ) : ViewModel() {
 
-    val uiState: StateFlow<HojeUiState> = combine(
+    init {
+        syncNow()
+    }
+
+    val isSyncing: StateFlow<Boolean> = syncCoordinator?.isSyncing ?: MutableStateFlow(false)
+
+    fun syncNow() {
+        viewModelScope.launch {
+            syncCoordinator?.syncNow()
+        }
+    }
+
+    private data class BaseHojeData(
+        val legacyOrders: List<ServiceOrder>,
+        val structuredOrders: List<StructuredServiceOrder>,
+        val remoteEvents: List<RemoteEvent>,
+        val syncState: CalendarSyncState?
+    )
+
+    private val baseDataFlow = combine(
         repository.getServiceOrders(),
-        runCatching { repository.observeStructuredOrders() }.getOrNull() ?: kotlinx.coroutines.flow.flowOf(emptyList()),
+        runCatching { repository.observeStructuredOrders() }.getOrNull() ?: flowOf(emptyList()),
         calendarRepository.observeEvents(),
-        calendarRepository.observeSyncState(),
-        publicationRepository?.observeOperations() ?: kotlinx.coroutines.flow.flowOf(emptyList())
-    ) { legacyOrders, structuredOrders, remoteEvents, syncState, outboxOps ->
+        calendarRepository.observeSyncState()
+    ) { legacy, structured, remote, sync ->
+        BaseHojeData(legacy, structured, remote, sync)
+    }
+
+    val uiState: StateFlow<HojeUiState> = combine(
+        baseDataFlow,
+        publicationRepository?.observeOperations() ?: flowOf(emptyList<OutboxOperation>()),
+        isSyncing
+    ) { base, outboxOps, syncing ->
         val now = clock.nowMillis()
         val zone = ZoneId.systemDefault()
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
@@ -52,8 +84,8 @@ class HojeViewModel @Inject constructor(
 
         // 1. Unified Operational Projection
         val allCards = OperationalOrderProjection.project(
-            remoteEvents = remoteEvents,
-            structuredOrders = structuredOrders,
+            remoteEvents = base.remoteEvents,
+            structuredOrders = base.structuredOrders,
             outboxOperations = outboxOps
         )
 
@@ -76,18 +108,18 @@ class HojeViewModel @Inject constructor(
             .thenByDescending { it.end ?: Long.MIN_VALUE }
             .thenBy { it.href }
 
-        val todayEvents = remoteEvents.filter { event ->
+        val todayEvents = base.remoteEvents.filter { event ->
             val start = event.start
             val end = event.end ?: start?.plus(1) ?: start
             start != null && start < dayEnd && (end == null || end > dayStart)
         }.sortedWith(newestFirst)
 
-        val attentionEvents = remoteEvents.filter {
+        val attentionEvents = base.remoteEvents.filter {
             it.color == EventColor.REQUER_ATENCAO &&
                 (it.start ?: it.end ?: Long.MIN_VALUE) > historicalCutoff
         }.sortedWith(newestFirst)
 
-        val overdueEvents = remoteEvents.filter {
+        val overdueEvents = base.remoteEvents.filter {
             it.end != null && it.end < dayStart &&
                 (it.start ?: it.end ?: Long.MIN_VALUE) > historicalCutoff &&
                 it.color != EventColor.VALIDADO &&
@@ -97,11 +129,11 @@ class HojeViewModel @Inject constructor(
         val separated = (attentionEvents + overdueEvents).toSet()
 
         HojeUiState.Success(
-            emAndamento = legacyOrders.filter { it.status == ServiceOrderStatus.EM_ANDAMENTO },
-            requerAtencao = legacyOrders.filter {
+            emAndamento = base.legacyOrders.filter { it.status == ServiceOrderStatus.EM_ANDAMENTO },
+            requerAtencao = base.legacyOrders.filter {
                 it.status == ServiceOrderStatus.PENDENTE && it.scheduledDate?.let { date -> date < clock.nowMillis() } == true
             },
-            pendencias = legacyOrders.filter {
+            pendencias = base.legacyOrders.filter {
                 it.status == ServiceOrderStatus.PENDENTE && (it.scheduledDate == null || it.scheduledDate >= clock.nowMillis())
             },
             remoteEvents = todayEvents.filterNot { it in separated },
@@ -111,7 +143,8 @@ class HojeViewModel @Inject constructor(
             emAndamentoCards = inProgressCards,
             requerAtencaoCards = attentionCards,
             hojeCards = todayCards,
-            syncState = syncState
+            syncState = base.syncState,
+            isSyncing = syncing
         )
     }.stateIn(
         scope = viewModelScope,
@@ -152,6 +185,7 @@ sealed interface HojeUiState {
         val emAndamentoCards: List<OperationalOrderCard> = emptyList(),
         val requerAtencaoCards: List<OperationalOrderCard> = emptyList(),
         val hojeCards: List<OperationalOrderCard> = emptyList(),
-        val syncState: CalendarSyncState?
+        val syncState: CalendarSyncState?,
+        val isSyncing: Boolean = false
     ) : HojeUiState
 }

@@ -154,6 +154,51 @@ class HojeViewModelTest {
         collection.cancel()
     }
 
+    @Test
+    fun `syncNow triggers coordinator and reflects isSyncing state`() = runTest {
+        val now = 1_000_000L
+        val syncingFlow = MutableStateFlow(false)
+        var syncTriggeredCount = 0
+        val fakeCoordinator = object : dev.claudiocodigo.nexo.domain.caldav.CalendarSyncCoordinator {
+            override val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = syncingFlow
+            override suspend fun syncNow(): dev.claudiocodigo.nexo.domain.caldav.SyncOutcome {
+                syncTriggeredCount++
+                return dev.claudiocodigo.nexo.domain.caldav.SyncOutcome.Success(0, 0, 0, null)
+            }
+        }
+        `when`(calendarRepository.observeEvents()).thenReturn(flowOf(emptyList()))
+        `when`(calendarRepository.observeSyncState()).thenReturn(flowOf(null))
+
+        val viewModel = HojeViewModel(
+            repository = FlowRepository(emptyList()),
+            calendarRepository = calendarRepository,
+            clock = FixedClock(now),
+            publicationRepository = null,
+            syncCoordinator = fakeCoordinator
+        )
+
+        val collection = launch { viewModel.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, syncTriggeredCount) // triggered on init
+
+        syncingFlow.value = true
+        advanceUntilIdle()
+        var state = viewModel.uiState.value as HojeUiState.Success
+        assertEquals(true, state.isSyncing)
+
+        viewModel.syncNow()
+        advanceUntilIdle()
+        assertEquals(2, syncTriggeredCount)
+
+        syncingFlow.value = false
+        advanceUntilIdle()
+        state = viewModel.uiState.value as HojeUiState.Success
+        assertEquals(false, state.isSyncing)
+
+        collection.cancel()
+    }
+
     private fun order(status: ServiceOrderStatus, date: Long? = null) = ServiceOrder(
         id = UUID.randomUUID(), title = status.name, clientName = "Cliente", unitName = "Local",
         status = status, scheduledDate = date

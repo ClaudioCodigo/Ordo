@@ -5,24 +5,27 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,25 +33,26 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.claudiocodigo.nexo.R
-import dev.claudiocodigo.nexo.domain.model.ServiceOrder
-import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.domain.caldav.EventColor
 import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
+import dev.claudiocodigo.nexo.domain.model.ServiceOrder
+import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.ui.screens.hoje.ServiceOrderCard
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -62,90 +66,81 @@ fun AgendaScreen(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val deleteError by viewModel.deleteError.collectAsState()
     var pendingDeletion by remember { mutableStateOf<ServiceOrder?>(null) }
+    val isSyncing = (uiState as? AgendaUiState.Success)?.isSyncing == true
 
     Scaffold(
         modifier = Modifier.testTag("screen_agenda"),
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.agenda_title)) }
+                title = {
+                    Column {
+                        Text(stringResource(R.string.agenda_title))
+                        if (isSyncing) {
+                            Text(
+                                text = "Sincronizando com Nextcloud…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { viewModel.syncNow() },
+                        enabled = !isSyncing,
+                        modifier = Modifier.testTag("btn_sync_agenda")
+                    ) {
+                        Icon(Icons.Rounded.Sync, contentDescription = "Sincronizar com Nextcloud")
+                    }
+                }
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            TextField(
-                value = searchQuery,
-                onValueChange = { viewModel.onSearchQueryChange(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .testTag("agenda_search"),
-                placeholder = { Text(stringResource(R.string.search_hint)) },
-                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                colors = TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                shape = MaterialTheme.shapes.medium
-            )
-
-            deleteError?.let { message ->
-                Text(
-                    text = message,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp)
+        PullToRefreshBox(
+            isRefreshing = isSyncing,
+            onRefresh = { viewModel.syncNow() },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.onSearchQueryChange(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .testTag("agenda_search"),
+                    placeholder = { Text(stringResource(R.string.search_hint)) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    shape = MaterialTheme.shapes.medium
                 )
-            }
 
-            when (val state = uiState) {
-                AgendaUiState.Loading -> Text("Carregando agenda local…", modifier = Modifier.padding(16.dp).testTag("agenda_loading"))
-                is AgendaUiState.Success -> {
-                    val groups = (state.groupedOrders.keys + state.groupedRemoteEvents.keys).distinct()
-                    if (groups.isEmpty()) {
-                        Text(
-                            text = if (searchQuery.isBlank()) "Nenhuma ordem de serviço cadastrada." else "Nenhum resultado encontrado.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.padding(16.dp).testTag("agenda_empty")
+                deleteError?.let { message ->
+                    Text(
+                        text = message,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+
+                when (val state = uiState) {
+                    AgendaUiState.Loading -> Text(
+                        text = "Carregando agenda local…",
+                        modifier = Modifier.padding(16.dp).testTag("agenda_loading")
+                    )
+                    is AgendaUiState.Success -> {
+                        AgendaContent(
+                            state = state,
+                            searchQuery = searchQuery,
+                            onNavigateToDetails = onNavigateToDetails,
+                            onNavigateToRemoteEvent = onNavigateToRemoteEvent,
+                            onDeleteRequested = { pendingDeletion = it }
                         )
-                    } else LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(bottom = 16.dp)
-                    ) {
-                        groups.forEach { date ->
-                            val orders = state.groupedOrders[date].orEmpty()
-                            val remoteEvents = state.groupedRemoteEvents[date].orEmpty()
-                            stickyHeader {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.surface)
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = date,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                            items(orders) { os ->
-                                Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                                    ServiceOrderCard(
-                                        os = os,
-                                        onClick = onNavigateToDetails,
-                                        onDelete = if (os.status != ServiceOrderStatus.CONCLUIDA) {
-                                            { pendingDeletion = os }
-                                        } else null
-                                    )
-                                }
-                            }
-                            items(remoteEvents, key = { "agenda_remote_${it.href}" }) { event ->
-                                AgendaRemoteEventCard(event) {
-                                    onNavigateToRemoteEvent(event.accountId, event.calendarHref, event.href)
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -181,18 +176,79 @@ fun AgendaScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun AgendaContent(
+    state: AgendaUiState.Success,
+    searchQuery: String = "",
+    onNavigateToDetails: (String) -> Unit,
+    onNavigateToRemoteEvent: (accountId: String, calendarHref: String, href: String) -> Unit,
+    onDeleteRequested: (ServiceOrder) -> Unit
+) {
+    val groups = (state.groupedOrders.keys + state.groupedRemoteEvents.keys).distinct()
+    if (groups.isEmpty()) {
+        Text(
+            text = if (searchQuery.isBlank()) "Nenhuma ordem de serviço cadastrada." else "Nenhum resultado encontrado.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(16.dp).testTag("agenda_empty")
+        )
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 16.dp)
+        ) {
+            groups.forEach { date ->
+                val orders = state.groupedOrders[date].orEmpty()
+                val remoteEvents = state.groupedRemoteEvents[date].orEmpty()
+                stickyHeader {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = date,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                items(orders) { os ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        ServiceOrderCard(
+                            os = os,
+                            onClick = onNavigateToDetails,
+                            onDelete = if (os.status != ServiceOrderStatus.CONCLUIDA) {
+                                { onDeleteRequested(os) }
+                            } else null
+                        )
+                    }
+                }
+                items(remoteEvents, key = { "agenda_remote_${it.href}" }) { event ->
+                    AgendaRemoteEventCard(event) {
+                        onNavigateToRemoteEvent(event.accountId, event.calendarHref, event.href)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AgendaRemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        colors = androidx.compose.material3.CardDefaults.cardColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Event, contentDescription = "Evento remoto", tint = MaterialTheme.colorScheme.primary)
                     Text(event.summary ?: "Evento sem título", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                 }
@@ -204,17 +260,17 @@ private fun AgendaRemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
                         else -> "Não classificado"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (event.color == EventColor.REQUER_ATENCAO) ComposeColor(0xFFC62828) else MaterialTheme.colorScheme.outline
+                    color = if (event.color == EventColor.REQUER_ATENCAO) Color(0xFFC62828) else MaterialTheme.colorScheme.outline
                 )
             }
-            androidx.compose.foundation.layout.Box(
-                modifier = Modifier.size(12.dp).background(remoteColor(event.rawEventColor), androidx.compose.foundation.shape.CircleShape)
+            Box(
+                modifier = Modifier.size(12.dp).background(remoteColor(event.rawEventColor), CircleShape)
             )
         }
     }
 }
 
-private fun remoteColor(raw: String?): ComposeColor {
-    val hex = raw?.removePrefix("#") ?: return ComposeColor.Gray
-    return runCatching { ComposeColor(0xFF000000L or hex.toLong(16)) }.getOrDefault(ComposeColor.Gray)
+private fun remoteColor(raw: String?): Color {
+    val hex = raw?.removePrefix("#") ?: return Color.Gray
+    return runCatching { Color(0xFF000000L or hex.toLong(16)) }.getOrDefault(Color.Gray)
 }

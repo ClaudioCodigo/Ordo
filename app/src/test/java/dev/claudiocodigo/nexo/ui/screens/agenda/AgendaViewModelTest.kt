@@ -131,4 +131,45 @@ class AgendaViewModelTest {
         verify(repository).deleteServiceOrder(id)
         assertEquals(null, viewModel.deleteError.value)
     }
+
+    @Test
+    fun `syncNow triggers coordinator and reflects isSyncing state`() = runTest {
+        val syncingFlow = MutableStateFlow(false)
+        var syncTriggeredCount = 0
+        val fakeCoordinator = object : dev.claudiocodigo.nexo.domain.caldav.CalendarSyncCoordinator {
+            override val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = syncingFlow
+            override suspend fun syncNow(): dev.claudiocodigo.nexo.domain.caldav.SyncOutcome {
+                syncTriggeredCount++
+                return dev.claudiocodigo.nexo.domain.caldav.SyncOutcome.Success(0, 0, 0, null)
+            }
+        }
+
+        val vm = AgendaViewModel(
+            repository = repository,
+            calendarRepository = dev.claudiocodigo.nexo.ui.screens.agenda.EmptyCalendarRepository,
+            publicationRepository = null,
+            syncCoordinator = fakeCoordinator
+        )
+
+        val job = launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, syncTriggeredCount) // triggered on init
+
+        syncingFlow.value = true
+        advanceUntilIdle()
+        var state = vm.uiState.value as AgendaUiState.Success
+        assertEquals(true, state.isSyncing)
+
+        vm.syncNow()
+        advanceUntilIdle()
+        assertEquals(2, syncTriggeredCount)
+
+        syncingFlow.value = false
+        advanceUntilIdle()
+        state = vm.uiState.value as AgendaUiState.Success
+        assertEquals(false, state.isSyncing)
+
+        job.cancel()
+    }
 }

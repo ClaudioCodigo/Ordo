@@ -28,7 +28,7 @@ class SyncScheduler @Inject constructor(
 
     /** Schedules a periodic read-only sync, keeping any existing schedule. */
     fun schedulePeriodic() {
-        val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_HOURS, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_MINUTES, TimeUnit.MINUTES)
             .setConstraints(networkConstraint())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .build()
@@ -39,13 +39,13 @@ class SyncScheduler @Inject constructor(
         )
     }
 
-    /** Runs one read-only sync now (deduplicated against an in-flight sync). */
+    /** Runs one read-only sync now. */
     fun syncNow() {
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(networkConstraint())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .build()
-        workManager.enqueueUniqueWork(MANUAL_WORK, ExistingWorkPolicy.KEEP, request)
+        workManager.enqueueUniqueWork(MANUAL_WORK, ExistingWorkPolicy.REPLACE, request)
     }
 
     private fun networkConstraint(): Constraints =
@@ -54,6 +54,6 @@ class SyncScheduler @Inject constructor(
     companion object {
         private const val PERIODIC_WORK = "nexo_calendar_sync_periodic"
         private const val MANUAL_WORK = "nexo_calendar_sync_manual"
-        private const val PERIOD_HOURS = 6L
+        private const val PERIOD_MINUTES = 15L
     }
 }
