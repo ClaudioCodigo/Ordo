@@ -2,6 +2,7 @@ package dev.claudiocodigo.nexo.ui.screens.agenda
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,7 +54,12 @@ import dev.claudiocodigo.nexo.domain.caldav.EventColor
 import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
-import dev.claudiocodigo.nexo.ui.screens.hoje.ServiceOrderCard
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material3.Surface
+import dev.claudiocodigo.nexo.ui.screens.hoje.UnifiedOsCard
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -185,6 +191,8 @@ fun AgendaContent(
     onNavigateToRemoteEvent: (accountId: String, calendarHref: String, href: String) -> Unit,
     onDeleteRequested: (ServiceOrder) -> Unit
 ) {
+    val todayLabel = SimpleDateFormat("dd 'de' MMMM 'de' yyyy", Locale.forLanguageTag("pt-BR")).format(Date())
+
     val groups = (state.groupedOrders.keys + state.groupedRemoteEvents.keys).distinct()
     if (groups.isEmpty()) {
         Text(
@@ -199,6 +207,7 @@ fun AgendaContent(
             contentPadding = PaddingValues(bottom = 16.dp)
         ) {
             groups.forEach { date ->
+                val isToday = date.equals(todayLabel, ignoreCase = true)
                 val orders = state.groupedOrders[date].orEmpty()
                 val remoteEvents = state.groupedRemoteEvents[date].orEmpty()
                 stickyHeader {
@@ -208,17 +217,33 @@ fun AgendaContent(
                             .background(MaterialTheme.colorScheme.surface)
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Text(
-                            text = date,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (isToday) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                shape = CircleShape
+                            ) {
+                                Text(
+                                    text = "HOJE • $date",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = date,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
                     }
                 }
                 items(orders) { os ->
                     Box(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        ServiceOrderCard(
+                        dev.claudiocodigo.nexo.ui.screens.hoje.ServiceOrderCard(
                             os = os,
                             onClick = onNavigateToDetails,
                             onDelete = if (os.status != ServiceOrderStatus.CONCLUIDA) {
@@ -239,36 +264,119 @@ fun AgendaContent(
 
 @Composable
 private fun AgendaRemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
+    val (statusLabel, badgeBgColor, badgeTextColor, cardBgColor) = when (event.color) {
+        EventColor.VALIDADO -> Quadruple(
+            "Validado",
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.onPrimary,
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+        )
+        EventColor.REQUER_ATENCAO -> Quadruple(
+            "Requer atenção",
+            MaterialTheme.colorScheme.error,
+            MaterialTheme.colorScheme.onError,
+            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+        )
+        else -> Quadruple(
+            "Não classificado",
+            MaterialTheme.colorScheme.outline,
+            MaterialTheme.colorScheme.surface,
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    }
+
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 5.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        )
+            containerColor = cardBgColor
+        ),
+        shape = MaterialTheme.shapes.large
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Event, contentDescription = "Evento remoto", tint = MaterialTheme.colorScheme.primary)
-                    Text(event.summary ?: "Evento sem título", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        Icons.Rounded.Event,
+                        contentDescription = "Evento remoto",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        event.summary ?: "Evento sem título",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-                event.description?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2) }
+
+                if (event.rawEventColor != null) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .background(remoteColor(event.rawEventColor), CircleShape)
+                    )
+                }
+            }
+
+            event.start?.let {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        Icons.Rounded.Schedule,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = SimpleDateFormat("HH:mm", Locale.forLanguageTag("pt-BR")).format(Date(it)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            event.description?.takeIf { it.isNotBlank() }?.let {
+                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    when (event.color) {
-                        EventColor.REQUER_ATENCAO -> "Requer atenção"
-                        EventColor.VALIDADO -> "Validado"
-                        else -> "Não classificado"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (event.color == EventColor.REQUER_ATENCAO) Color(0xFFC62828) else MaterialTheme.colorScheme.outline
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Box(
-                modifier = Modifier.size(12.dp).background(remoteColor(event.rawEventColor), CircleShape)
-            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Surface(
+                color = badgeBgColor,
+                shape = CircleShape
+            ) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = badgeTextColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
         }
     }
 }
+
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
 private fun remoteColor(raw: String?): Color {
     val hex = raw?.removePrefix("#") ?: return Color.Gray
