@@ -25,6 +25,31 @@ enum class ServiceOrderPreset {
     SERVICO_SOLICITADO
 }
 
+/** Explicit guided workflow used when a service order is edited. */
+enum class ServiceOrderFlow {
+    RESOLUTION,
+    REQUEST,
+    UPDATE
+}
+
+/** Technician's opinion. External validation is represented by calendar color, never here. */
+enum class TechnicalOpinion {
+    CONCLUDED,
+    NOT_CONCLUDED
+}
+
+/** Explicit conclusion state of the service order with dual-factor validation. */
+enum class ConclusionState {
+    NAO_DEFINIDO,
+    CONCLUIDO,
+    CONCLUIDO_COM_PENDENCIAS,
+    NAO_CONCLUIDO;
+
+    /** True only when the technician is declaring the service order finished. */
+    val isCompletion: Boolean
+        get() = this == CONCLUIDO || this == CONCLUIDO_COM_PENDENCIAS
+}
+
 /** Publication state of a service order relative to the CalDAV calendar. */
 enum class PublicationState {
     LOCAL_DRAFT,
@@ -72,7 +97,8 @@ data class ServiceOrderVersion(
     val versionNumber: Int,
     val formattedDescription: String,
     val publishedEtag: String?,
-    val publishedAt: Long = System.currentTimeMillis()
+    val publishedAt: Long = System.currentTimeMillis(),
+    val confirmedRevision: Long = 0L
 )
 
 /**
@@ -88,6 +114,10 @@ data class StructuredServiceOrder(
     val technician: String? = null,
     val category: String? = null,
     val preset: ServiceOrderPreset = ServiceOrderPreset.DIAGNOSTICO_CORRECAO,
+    val flow: ServiceOrderFlow = when (preset) {
+        ServiceOrderPreset.DIAGNOSTICO_CORRECAO -> ServiceOrderFlow.RESOLUTION
+        ServiceOrderPreset.SERVICO_SOLICITADO -> ServiceOrderFlow.REQUEST
+    },
     val originalDemand: String = "",
     val status: ServiceOrderStatus = ServiceOrderStatus.PENDENTE,
     val publicationState: PublicationState = PublicationState.LOCAL_DRAFT,
@@ -96,6 +126,17 @@ data class StructuredServiceOrder(
     val closureCause: String? = null,
     val closureSolution: String? = null,
     val closurePending: String? = null,
+    val conclusionState: ConclusionState = ConclusionState.NAO_DEFINIDO,
+    val technicalOpinion: TechnicalOpinion = when (conclusionState) {
+        ConclusionState.NAO_CONCLUIDO -> TechnicalOpinion.NOT_CONCLUDED
+        else -> TechnicalOpinion.CONCLUDED
+    },
+    val observations: String? = null,
+    val updateDraft: String? = null,
+    val updateDraftRevision: Long = 0L,
+    val draftRevision: Long = 0L,
+    val officialNumberJustAssigned: Boolean = false,
+    val allDay: Boolean = false,
     val sequence: Int? = null,
     val scheduledStart: Long? = null,
     val scheduledEnd: Long? = null,
@@ -104,6 +145,15 @@ data class StructuredServiceOrder(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 ) {
+    val officialNumberAssigned: Boolean get() = officialNumberJustAssigned
+
+    /** Compatibility projection for callers that still use the two legacy presets. */
+    fun normalizedFlow(): ServiceOrderFlow = when {
+        flow == ServiceOrderFlow.UPDATE -> ServiceOrderFlow.UPDATE
+        flow == ServiceOrderFlow.REQUEST || preset == ServiceOrderPreset.SERVICO_SOLICITADO -> ServiceOrderFlow.REQUEST
+        else -> ServiceOrderFlow.RESOLUTION
+    }
+
     /** Converts the structured aggregate to the legacy lightweight model. */
     fun toLegacy(): ServiceOrder = ServiceOrder(
         id = id,

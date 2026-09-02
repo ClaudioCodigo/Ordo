@@ -186,14 +186,17 @@ data class ServiceOrderVersionEntity(
     val versionNumber: Int,
     val formattedDescription: String,
     val publishedEtag: String?,
-    val publishedAt: Long
+    val publishedAt: Long,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val confirmedRevision: Long = 0L
 ) {
     fun toDomain() = ServiceOrderVersion(
         id = id,
         versionNumber = versionNumber,
         formattedDescription = formattedDescription,
         publishedEtag = publishedEtag,
-        publishedAt = publishedAt
+        publishedAt = publishedAt,
+        confirmedRevision = confirmedRevision
     )
 
     companion object {
@@ -203,7 +206,8 @@ data class ServiceOrderVersionEntity(
             versionNumber = version.versionNumber,
             formattedDescription = version.formattedDescription,
             publishedEtag = version.publishedEtag,
-            publishedAt = version.publishedAt
+            publishedAt = version.publishedAt,
+            confirmedRevision = version.confirmedRevision
         )
     }
 }
@@ -227,5 +231,7 @@ data class PublicationOutboxEntity(
     val lastError: String?,
     val retryCount: Int,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    @androidx.room.ColumnInfo(defaultValue = "0")
+    val confirmedRevision: Long = 0L
 )

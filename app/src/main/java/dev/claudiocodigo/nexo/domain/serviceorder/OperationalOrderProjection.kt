@@ -41,7 +41,8 @@ data class OperationalOrderCard(
     val status: OperationalStatus,
     val rawColor: String?,
     val navigationTarget: CardNavigationTarget,
-    val isLinked: Boolean
+    val isLinked: Boolean,
+    val officialNumberAssigned: Boolean = false
 )
 
 object OperationalOrderProjection {
@@ -73,7 +74,8 @@ object OperationalOrderProjection {
                 color = color,
                 outboxStatus = latestOutbox?.status,
                 localStatus = linkedOrder?.status,
-                isCompletedLocal = linkedOrder?.status == ServiceOrderStatus.CONCLUIDA
+                isCompletedLocal = linkedOrder?.status == ServiceOrderStatus.CONCLUIDA,
+                conclusionState = linkedOrder?.conclusionState ?: ConclusionState.NAO_DEFINIDO
             )
 
             val navTarget = when (status) {
@@ -97,61 +99,31 @@ object OperationalOrderProjection {
                     status = status,
                     rawColor = event.rawEventColor,
                     navigationTarget = navTarget,
-                    isLinked = linkedOrder != null
+                    isLinked = linkedOrder != null,
+                    officialNumberAssigned = linkedOrder?.officialNumberJustAssigned == true
                 )
             )
         }
 
-        // 2. Process Unlinked (Provisional Local) Structured Orders
-        val provisionalOrders = structuredOrders.filter { it.id !in usedOrderIds }
-        for (order in provisionalOrders) {
-            val latestOutbox = outboxByOrder[order.id]?.lastOrNull()
-            val status = determineStatus(
-                color = EventColor.NAO_CLASSIFICADO,
-                outboxStatus = latestOutbox?.status,
-                localStatus = order.status,
-                isCompletedLocal = order.status == ServiceOrderStatus.CONCLUIDA
-            )
-
-            val navTarget = when (status) {
-                OperationalStatus.CONFLITO_PUBLICACAO -> CardNavigationTarget.REVISAO_CONFLITO
-                else -> CardNavigationTarget.EDITOR_OS
-            }
-
-            cards.add(
-                OperationalOrderCard(
-                    cardId = "local_${order.id}",
-                    localOrderId = order.id,
-                    remoteAccountId = null,
-                    remoteCalendarHref = null,
-                    remoteEventHref = null,
-                    externalId = order.externalId,
-                    title = order.title.ifBlank { "Ordem de Serviço Provisória" },
-                    clientName = order.clientName.ifBlank { "Cliente" },
-                    unitName = order.unitName,
-                    startMillis = order.createdAt,
-                    endMillis = order.updatedAt,
-                    status = status,
-                    rawColor = null,
-                    navigationTarget = navTarget,
-                    isLinked = false
-                )
-            )
-        }
-
-        // 3. Stable Newest-First Sort with ID tie-break
+        // 2. Stable Oldest-First Sort with Concluded items placed at the end
         return cards.sortedWith(
-            compareByDescending<OperationalOrderCard> { it.startMillis ?: Long.MIN_VALUE }
-                .thenByDescending { it.endMillis ?: Long.MIN_VALUE }
+            compareBy<OperationalOrderCard> { isCardConcluded(it) }
+                .thenBy { it.startMillis ?: Long.MAX_VALUE }
+                .thenBy { it.endMillis ?: Long.MAX_VALUE }
                 .thenBy { it.cardId }
         )
     }
+
+    fun isCardConcluded(card: OperationalOrderCard): Boolean =
+        card.status == OperationalStatus.VALIDADO_EXTERNAMENTE ||
+            card.status == OperationalStatus.AGUARDANDO_VALIDACAO_EXTERNA
 
     private fun determineStatus(
         color: EventColor,
         outboxStatus: OutboxStatus?,
         localStatus: ServiceOrderStatus?,
-        isCompletedLocal: Boolean
+        isCompletedLocal: Boolean,
+        conclusionState: ConclusionState = ConclusionState.NAO_DEFINIDO
     ): OperationalStatus {
         // Precedence:
         // 1. Red (Requer Atenção) wins above all else
@@ -169,7 +141,10 @@ object OperationalOrderProjection {
         if (color == EventColor.VALIDADO) return OperationalStatus.VALIDADO_EXTERNAMENTE
 
         // 5. Internal completion without external green
-        if (isCompletedLocal || localStatus == ServiceOrderStatus.CONCLUIDA) {
+        if (conclusionState == ConclusionState.NAO_CONCLUIDO) {
+            return if (localStatus == ServiceOrderStatus.PENDENTE) OperationalStatus.PENDENTE else OperationalStatus.EM_ANDAMENTO
+        }
+        if (isCompletedLocal || localStatus == ServiceOrderStatus.CONCLUIDA || conclusionState.isCompletion) {
             return OperationalStatus.AGUARDANDO_VALIDACAO_EXTERNA
         }
 

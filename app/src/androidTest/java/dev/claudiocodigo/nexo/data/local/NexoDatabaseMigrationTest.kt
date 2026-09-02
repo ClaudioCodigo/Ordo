@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 import java.io.IOException
 
 /**
- * Verifies explicit Room migrations 1 -> 2 and 2 -> 3 against real schemas.
+ * Verifies explicit Room migrations through schema v4 against real schemas.
  *
  * Validates that:
  * - the v1 `service_orders` table and its rows survive untouched through 1 -> 2 and 2 -> 3;
@@ -131,6 +131,28 @@ class NexoDatabaseMigrationTest {
         }
 
         assertNotNull(db)
+        db.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate3To4_preservesDraftAndAddsNonFinalDefault() {
+        helper.createDatabase(testDb, 3).use { db ->
+            db.execSQL(
+                "INSERT INTO service_orders " +
+                    "(id, externalId, title, description, status, clientName, unitName, scheduledDate, createdAt, updatedAt, preset, originalDemand, publicationState) " +
+                    "VALUES ('00000000-0000-0000-0000-000000000004', '15431', 'Retorno', 'Demanda', 'EM_ANDAMENTO', 'Cliente', 'Local', NULL, 1000, 2000, 'DIAGNOSTICO_CORRECAO', 'Demanda', 'LOCAL_DRAFT')"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(testDb, 4, true, NexoDatabaseMigrations.MIGRATION_3_4)
+
+        db.query("SELECT title, status, conclusionState FROM service_orders WHERE id = '00000000-0000-0000-0000-000000000004'").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("Retorno", cursor.getString(0))
+            assertEquals("EM_ANDAMENTO", cursor.getString(1))
+            assertEquals("NAO_DEFINIDO", cursor.getString(2))
+        }
         db.close()
     }
 }

@@ -32,7 +32,12 @@ object DatabaseModule {
         )
             .addMigrations(
                 NexoDatabaseMigrations.MIGRATION_1_2,
-                NexoDatabaseMigrations.MIGRATION_2_3
+                NexoDatabaseMigrations.MIGRATION_2_3,
+                NexoDatabaseMigrations.MIGRATION_3_4,
+                NexoDatabaseMigrations.MIGRATION_4_5,
+                NexoDatabaseMigrations.MIGRATION_1_5,
+                NexoDatabaseMigrations.MIGRATION_2_5,
+                NexoDatabaseMigrations.MIGRATION_3_5
             )
             .build()
     }

@@ -88,7 +88,7 @@ class SyncCenterViewModelTest {
         override fun observeOperations(): Flow<List<OutboxOperation>> = opsFlow
         override suspend fun getOperationById(id: UUID) = opsFlow.value.firstOrNull { it.id == id }
         override suspend fun getLatestForOrder(orderId: UUID) = opsFlow.value.lastOrNull { it.orderId == orderId }
-        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot) = opsFlow.value.first()
+        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot, forceOverwrite: Boolean) = opsFlow.value.first()
         override suspend fun claimNextEligible(nowMillis: Long, leaseDurationMillis: Long) = null
         override suspend fun markSent(operationId: UUID, newEtag: String?, nowMillis: Long) = Unit
         override suspend fun markConflict(operationId: UUID, reason: String, nowMillis: Long) = Unit
@@ -97,6 +97,14 @@ class SyncCenterViewModelTest {
             canceledIds.add(operationId)
             opsFlow.value = opsFlow.value.filterNot { it.id == operationId }
             return true
+        }
+        override suspend fun cancelOperation(operationId: UUID): Boolean {
+            canceledIds.add(operationId)
+            opsFlow.value = opsFlow.value.filterNot { it.id == operationId }
+            return true
+        }
+        override suspend fun cancelAllForOrder(orderId: UUID) {
+            opsFlow.value = opsFlow.value.filterNot { it.orderId == orderId }
         }
     }
 

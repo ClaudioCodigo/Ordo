@@ -19,6 +19,7 @@ interface ServiceOrderRepository {
     fun observeStructuredOrders(): Flow<List<StructuredServiceOrder>> = flowOf(emptyList())
     suspend fun getStructuredOrderById(id: UUID): StructuredServiceOrder? = null
     suspend fun saveStructuredOrder(order: StructuredServiceOrder) {}
+    suspend fun deleteStructuredOrder(id: UUID) {}
 
     suspend fun createOrGetAttendance(
         key: RemoteOccurrenceKey,

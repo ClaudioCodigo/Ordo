@@ -37,7 +37,7 @@ import dev.claudiocodigo.nexo.data.local.entity.ServiceOrderVersionEntity
         ServiceOrderVersionEntity::class,
         PublicationOutboxEntity::class
     ],
-    version = 3,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

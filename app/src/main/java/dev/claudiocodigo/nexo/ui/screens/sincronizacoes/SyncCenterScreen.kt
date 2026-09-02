@@ -210,13 +210,24 @@ fun SyncCenterScreen(
                                         Text(item.orderTitle, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                         Text(item.operation.lastError ?: "Falha na comunicação", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        OutlinedButton(
-                                            onClick = { viewModel.retryOperation(item.operation.id) },
-                                            modifier = Modifier.fillMaxWidth()
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(Icons.Rounded.Refresh, contentDescription = null)
-                                            Spacer(modifier = Modifier.size(4.dp))
-                                            Text("Tentar Novamente")
+                                            OutlinedButton(
+                                                onClick = { viewModel.retryOperation(item.operation.id) },
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.size(4.dp))
+                                                Text("Tentar Novamente")
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.cancelOperation(item.operation.id) },
+                                                modifier = Modifier.align(Alignment.CenterVertically)
+                                            ) {
+                                                Icon(Icons.Rounded.Close, contentDescription = "Cancelar Operação", tint = MaterialTheme.colorScheme.error)
+                                            }
                                         }
                                     }
                                 }

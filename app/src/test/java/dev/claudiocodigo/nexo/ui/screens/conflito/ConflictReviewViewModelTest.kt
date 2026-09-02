@@ -31,12 +31,18 @@ import org.junit.Before
 import org.junit.Test
 import java.util.UUID
 
+import dev.claudiocodigo.nexo.domain.publication.PublicationRepository
+import dev.claudiocodigo.nexo.domain.publication.ConfirmedPreviewSnapshot
+import dev.claudiocodigo.nexo.domain.publication.OutboxOperation
+import dev.claudiocodigo.nexo.domain.publication.OutboxStatus
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConflictReviewViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var serviceOrderRepository: FakeServiceOrderRepository
     private lateinit var calendarRepository: FakeCalendarRepository
+    private lateinit var publicationRepository: FakePublicationRepository
     private lateinit var viewModel: ConflictReviewViewModel
 
     @Before
@@ -44,7 +50,8 @@ class ConflictReviewViewModelTest {
         Dispatchers.setMain(testDispatcher)
         serviceOrderRepository = FakeServiceOrderRepository()
         calendarRepository = FakeCalendarRepository()
-        viewModel = ConflictReviewViewModel(serviceOrderRepository, calendarRepository)
+        publicationRepository = FakePublicationRepository()
+        viewModel = ConflictReviewViewModel(serviceOrderRepository, calendarRepository, publicationRepository)
     }
 
     @After
@@ -59,11 +66,12 @@ class ConflictReviewViewModelTest {
         val order = StructuredServiceOrder(
             id = orderId,
             occurrenceKey = key,
+            externalId = "15428",
             title = "Manutenção Nobreak",
             clientName = "Cliente",
             unitName = "Unidade",
             originalDemand = "Nobreak desligando sozinho",
-            baseSnapshot = RemoteBaseSnapshot(etag = "\"etag-1\"", rawIcs = "", rawSummary = "Manutenção Nobreak", rawDescription = "Demanda antiga")
+            baseSnapshot = RemoteBaseSnapshot(etag = "\"etag-1\"", rawIcs = "", rawSummary = "Cliente - 15428 - Nobreak - Manutenção Nobreak - Unidade", rawDescription = "Demanda:\nDemanda antiga")
         )
         serviceOrderRepository.orders[orderId] = order
 
@@ -75,7 +83,7 @@ class ConflictReviewViewModelTest {
             etag = "\"etag-2\"",
             sequence = 2,
             rawIcs = "",
-            summary = "Manutenção Nobreak - Urgente",
+            summary = "Cliente - 15428 - Nobreak - Manutenção Nobreak Urgente - Unidade",
             description = "Demanda: Nobreak desligando e soltando fumaça",
             location = null,
             start = null,
@@ -110,7 +118,7 @@ class ConflictReviewViewModelTest {
 
         assertTrue(resolvedCalled)
         val saved = serviceOrderRepository.orders[orderId]
-        assertEquals("Manutenção Nobreak - Urgente", saved?.title)
+        assertEquals("Manutenção Nobreak Urgente", saved?.title)
         assertEquals("Nobreak desligando sozinho", saved?.originalDemand) // kept local
         assertEquals("\"etag-2\"", saved?.baseSnapshot?.etag) // renewed ETag
         assertEquals(PublicationState.LOCAL_DRAFT, saved?.publicationState)
@@ -144,5 +152,32 @@ class ConflictReviewViewModelTest {
         override fun observeSelectedCalendar() = emptyFlow<CalendarInfo?>()
         override fun observeSyncState() = emptyFlow<CalendarSyncState?>()
         override fun classifyColor(raw: String?) = EventColor.NAO_CLASSIFICADO
+    }
+
+    private class FakePublicationRepository : PublicationRepository {
+        val operations = mutableMapOf<UUID, OutboxOperation>()
+        override fun observeOperations(): Flow<List<OutboxOperation>> = flowOf(operations.values.toList())
+        override suspend fun getOperationById(id: UUID) = operations[id]
+        override suspend fun getLatestForOrder(orderId: UUID) = operations.values.lastOrNull { it.orderId == orderId }
+        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot, forceOverwrite: Boolean): OutboxOperation {
+            val op = OutboxOperation(
+                orderId = snapshot.orderId,
+                action = snapshot.action,
+                payloadIcs = snapshot.rawIcsPayload,
+                ifMatchEtag = snapshot.baseEtag,
+                status = OutboxStatus.PENDING
+            )
+            operations[op.id] = op
+            return op
+        }
+        override suspend fun claimNextEligible(nowMillis: Long, leaseDurationMillis: Long): OutboxOperation? = null
+        override suspend fun markSent(operationId: UUID, newEtag: String?, nowMillis: Long) {}
+        override suspend fun markConflict(operationId: UUID, reason: String, nowMillis: Long) {}
+        override suspend fun markFailed(operationId: UUID, reason: String, permanent: Boolean, nowMillis: Long) {}
+        override suspend fun cancelPending(operationId: UUID) = operations.remove(operationId) != null
+        override suspend fun cancelOperation(operationId: UUID) = operations.remove(operationId) != null
+        override suspend fun cancelAllForOrder(orderId: UUID) {
+            operations.entries.removeAll { it.value.orderId == orderId }
+        }
     }
 }

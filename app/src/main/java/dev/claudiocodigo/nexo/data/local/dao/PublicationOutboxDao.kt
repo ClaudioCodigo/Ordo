@@ -21,6 +21,15 @@ interface PublicationOutboxDao {
     @Query("SELECT * FROM publication_outbox WHERE orderId = :orderId ORDER BY createdAt DESC LIMIT 1")
     suspend fun getLatestForOrder(orderId: UUID): PublicationOutboxEntity?
 
+    @Query("SELECT EXISTS(SELECT 1 FROM publication_outbox WHERE orderId = :orderId AND status IN ('PENDING', 'SENDING', 'CONFLICT'))")
+    suspend fun hasBlockingOperation(orderId: UUID): Boolean
+
+    @Query("SELECT EXISTS(SELECT 1 FROM publication_outbox WHERE orderId = :orderId AND status IN ('PENDING', 'SENDING'))")
+    suspend fun hasActiveOperation(orderId: UUID): Boolean
+
+    @Query("DELETE FROM publication_outbox WHERE orderId = :orderId AND status = 'CONFLICT'")
+    suspend fun clearConflictsForOrder(orderId: UUID): Int
+
     @Query(
         """
         SELECT * FROM publication_outbox
@@ -70,6 +79,12 @@ interface PublicationOutboxDao {
 
     @Query("DELETE FROM publication_outbox WHERE id = :id AND status = 'PENDING'")
     suspend fun deleteIfPending(id: UUID): Int
+
+    @Query("DELETE FROM publication_outbox WHERE id = :id")
+    suspend fun deleteOperation(id: UUID): Int
+
+    @Query("DELETE FROM publication_outbox WHERE orderId = :orderId AND status IN ('PENDING', 'SENDING', 'PERMANENT_FAILURE')")
+    suspend fun clearPendingForOrder(orderId: UUID): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(entity: PublicationOutboxEntity)

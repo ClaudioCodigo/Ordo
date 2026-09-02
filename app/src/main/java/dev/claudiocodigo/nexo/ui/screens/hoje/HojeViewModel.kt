@@ -127,6 +127,11 @@ class HojeViewModel @Inject constructor(
         }.sortedWith(newestFirst)
 
         val separated = (attentionEvents + overdueEvents).toSet()
+        val todayOpenCards = todayCards.filter { !OperationalOrderProjection.isCardConcluded(it) }
+        val todayConcludedCards = todayCards.filter { OperationalOrderProjection.isCardConcluded(it) }
+        val provisionalDraftsCount = base.structuredOrders.count {
+            it.occurrenceKey == null && it.publicationState == PublicationState.LOCAL_DRAFT
+        }
 
         HojeUiState.Success(
             emAndamento = base.legacyOrders.filter { it.status == ServiceOrderStatus.EM_ANDAMENTO },
@@ -143,6 +148,9 @@ class HojeViewModel @Inject constructor(
             emAndamentoCards = inProgressCards,
             requerAtencaoCards = attentionCards,
             hojeCards = todayCards,
+            hojeOpenCards = todayOpenCards,
+            hojeConcludedCards = todayConcludedCards,
+            provisionalDraftsCount = provisionalDraftsCount,
             syncState = base.syncState,
             isSyncing = syncing
         )
@@ -185,6 +193,9 @@ sealed interface HojeUiState {
         val emAndamentoCards: List<OperationalOrderCard> = emptyList(),
         val requerAtencaoCards: List<OperationalOrderCard> = emptyList(),
         val hojeCards: List<OperationalOrderCard> = emptyList(),
+        val hojeOpenCards: List<OperationalOrderCard> = emptyList(),
+        val hojeConcludedCards: List<OperationalOrderCard> = emptyList(),
+        val provisionalDraftsCount: Int = 0,
         val syncState: CalendarSyncState?,
         val isSyncing: Boolean = false
     ) : HojeUiState

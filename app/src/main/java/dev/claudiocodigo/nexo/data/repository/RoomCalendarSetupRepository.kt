@@ -60,21 +60,13 @@ class RoomCalendarSetupRepository @Inject constructor(
     override suspend fun saveCalendars(accountId: String, calendars: List<CalendarInfo>) {
         val now = System.currentTimeMillis()
         val previous = calendarDao.getForAccount(accountId).associateBy { it.href }
-        val hasSelectedPrevious = previous.values.any { it.isSelected }
-        val defaultHref = if (!hasSelectedPrevious && calendars.isNotEmpty()) {
-            calendars.firstOrNull { cal ->
-                val name = cal.displayName?.lowercase().orEmpty()
-                val href = cal.href.lowercase()
-                name.contains("pessoal") || name.contains("personal") || name.contains("ordens") || name.contains("trabalho") ||
-                    href.contains("personal") || href.contains("default")
-            }?.href ?: calendars.firstOrNull { it.hasWritePrivilege }?.href ?: calendars.first().href
-        } else null
-
         val entities = calendars.map { info ->
             CalendarEntity.fromDomain(
                 accountId = accountId,
                 info = info,
-                isSelected = previous[info.href]?.isSelected ?: (info.href == defaultHref),
+                // Selection is an explicit user decision. Discovery may refresh
+                // metadata, but it must never infer a destination calendar.
+                isSelected = previous[info.href]?.isSelected ?: false,
                 updatedAt = now
             )
         }

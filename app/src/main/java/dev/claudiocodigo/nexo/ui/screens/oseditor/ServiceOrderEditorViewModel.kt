@@ -6,8 +6,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.claudiocodigo.nexo.data.preferences.RecentServiceOrderPreferences
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.domain.repository.ServiceOrderRepository
+import dev.claudiocodigo.nexo.domain.serviceorder.ConclusionState
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderItem
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
+import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderFlow
+import dev.claudiocodigo.nexo.domain.serviceorder.TechnicalOpinion
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderUpdate
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderValidation
 import dev.claudiocodigo.nexo.domain.serviceorder.ValidationResult
@@ -46,44 +49,115 @@ class ServiceOrderEditorViewModel @Inject constructor(
             val recentTech = preferences.recentTechnician.firstOrNull()
             val recentClient = preferences.recentClient.firstOrNull()
             val recentUnit = preferences.recentUnit.firstOrNull()
+            val recentCategory = preferences.recentCategory.firstOrNull()
 
             if (structured != null) {
                 _state.value = ServiceOrderEditorState(
                     id = structured.id,
                     isLinked = structured.occurrenceKey != null,
                     occurrenceKey = structured.occurrenceKey,
+                    // Extracted calendar data still requires explicit technician confirmation.
+                    currentStep = EditorStep.IDENTIFICACAO,
                     externalId = structured.externalId.orEmpty(),
                     title = structured.title,
                     clientName = structured.clientName,
                     unitName = structured.unitName,
                     technician = structured.technician ?: recentTech.orEmpty(),
-                    category = structured.category.orEmpty(),
+                    category = structured.category ?: recentCategory.orEmpty(),
                     preset = structured.preset,
+                    flow = structured.normalizedFlow(),
                     originalDemand = structured.originalDemand,
                     updates = structured.updates,
                     items = structured.items,
                     closureCause = structured.closureCause.orEmpty(),
                     closureSolution = structured.closureSolution.orEmpty(),
                     closurePending = structured.closurePending.orEmpty(),
+                    conclusionState = structured.conclusionState,
+                    technicalOpinion = structured.technicalOpinion,
+                    observations = structured.observations.orEmpty(),
+                    updateDraft = structured.updateDraft.orEmpty(),
+                    updateDraftRevision = structured.updateDraftRevision,
+                    draftRevision = structured.draftRevision,
                     status = structured.status,
                     publicationState = structured.publicationState,
                     scheduledStart = structured.scheduledStart,
                     scheduledEnd = structured.scheduledEnd,
+                    allDay = structured.allDay,
                     recentTechnicianSuggestion = recentTech,
                     recentClientSuggestion = recentClient,
-                    recentUnitSuggestion = recentUnit
+                    recentUnitSuggestion = recentUnit,
+                    recentCategorySuggestion = recentCategory
                 )
+                if (structured.officialNumberJustAssigned) {
+                    repository.saveStructuredOrder(structured.copy(officialNumberJustAssigned = false))
+                }
             } else {
                 _state.value = _state.value.copy(
                     id = orderId,
                     technician = recentTech.orEmpty(),
                     clientName = recentClient.orEmpty(),
                     unitName = recentUnit.orEmpty(),
+                    category = recentCategory.orEmpty(),
                     recentTechnicianSuggestion = recentTech,
                     recentClientSuggestion = recentClient,
-                    recentUnitSuggestion = recentUnit
+                    recentUnitSuggestion = recentUnit,
+                    recentCategorySuggestion = recentCategory,
+                    scheduledStart = clock.nowMillis(),
+                    scheduledEnd = clock.nowMillis() + 3_600_000L
                 )
             }
+        }
+    }
+
+    fun goToStep(step: EditorStep) {
+        val active = _state.value.activeSteps
+        if (step !in active) return
+        val current = _state.value.currentStep
+        val currentIndex = active.indexOf(current).coerceAtLeast(0)
+        val targetIndex = active.indexOf(step).coerceAtLeast(0)
+
+        if (targetIndex <= currentIndex) {
+            mutate { it.copy(currentStep = step) }
+            return
+        }
+
+        val firstInvalid = active.subList(0, targetIndex)
+            .firstNotNullOfOrNull { candidate -> validateStep(candidate)?.let { candidate to it } }
+
+        if (firstInvalid != null) {
+            _state.update {
+                it.copy(currentStep = firstInvalid.first, validationError = firstInvalid.second)
+            }
+            return
+        }
+        mutate { it.copy(currentStep = step) }
+    }
+
+    fun nextStep() {
+        val active = _state.value.activeSteps
+        val current = _state.value.currentStep
+        val currentIndex = active.indexOf(current).coerceAtLeast(0)
+
+        val error = validateStep(current)
+        if (error != null) {
+            _state.update { it.copy(validationError = error) }
+            return
+        }
+
+        if (currentIndex < active.lastIndex) {
+            val next = active[currentIndex + 1]
+            mutate { it.copy(currentStep = next) }
+        }
+    }
+
+    fun previousStep() {
+        val active = _state.value.activeSteps
+        val current = _state.value.currentStep
+        val currentIndex = active.indexOf(current).coerceAtLeast(0)
+
+        if (currentIndex > 0) {
+            val prev = active[currentIndex - 1]
+            mutate { it.copy(currentStep = prev) }
         }
     }
 
@@ -91,13 +165,54 @@ class ServiceOrderEditorViewModel @Inject constructor(
     fun onTitleChange(value: String) = mutate { it.copy(title = value) }
     fun onClientNameChange(value: String) = mutate { it.copy(clientName = value) }
     fun onUnitNameChange(value: String) = mutate { it.copy(unitName = value) }
+    fun onScheduledStartChange(value: Long?) = mutate { it.copy(scheduledStart = value) }
+    fun onScheduledEndChange(value: Long?) = mutate { it.copy(scheduledEnd = value) }
     fun onTechnicianChange(value: String) = mutate { it.copy(technician = value) }
     fun onCategoryChange(value: String) = mutate { it.copy(category = value) }
-    fun onPresetChange(preset: ServiceOrderPreset) = mutate { it.copy(preset = preset) }
+    fun onPresetChange(preset: ServiceOrderPreset) = mutate {
+        it.copy(
+            preset = preset,
+            flow = if (preset == ServiceOrderPreset.SERVICO_SOLICITADO) ServiceOrderFlow.REQUEST else ServiceOrderFlow.RESOLUTION
+        )
+    }
+    fun onFlowChange(flow: ServiceOrderFlow) = mutate { current ->
+        val updated = current.copy(
+            flow = flow,
+            preset = if (flow == ServiceOrderFlow.REQUEST) ServiceOrderPreset.SERVICO_SOLICITADO else ServiceOrderPreset.DIAGNOSTICO_CORRECAO
+        )
+        val active = updated.activeSteps
+        if (updated.currentStep !in active) {
+            updated.copy(currentStep = active.firstOrNull() ?: EditorStep.IDENTIFICACAO)
+        } else {
+            updated
+        }
+    }
     fun onDemandChange(value: String) = mutate { it.copy(originalDemand = value) }
+    fun onUpdateDraftChange(value: String) = mutate { it.copy(updateDraft = value) }
+    fun onObservationsChange(value: String) = mutate { it.copy(observations = value) }
     fun onClosureCauseChange(value: String) = mutate { it.copy(closureCause = value) }
     fun onClosureSolutionChange(value: String) = mutate { it.copy(closureSolution = value) }
     fun onClosurePendingChange(value: String) = mutate { it.copy(closurePending = value) }
+
+    fun onConclusionStateChange(state: ConclusionState) = mutate {
+        it.copy(
+            conclusionState = state,
+            status = when {
+                state.isCompletion -> ServiceOrderStatus.CONCLUIDA
+                state == ConclusionState.NAO_CONCLUIDO -> ServiceOrderStatus.EM_ANDAMENTO
+                it.status == ServiceOrderStatus.CONCLUIDA -> ServiceOrderStatus.EM_ANDAMENTO
+                else -> it.status
+            }
+        )
+    }
+
+    fun onTechnicalOpinionChange(opinion: TechnicalOpinion) = mutate {
+        it.copy(
+            technicalOpinion = opinion,
+            conclusionState = if (opinion == TechnicalOpinion.NOT_CONCLUDED) ConclusionState.NAO_CONCLUIDO else ConclusionState.CONCLUIDO,
+            status = ServiceOrderStatus.CONCLUIDA
+        )
+    }
 
     fun onStatusChange(status: ServiceOrderStatus) = mutate { it.copy(status = status) }
 
@@ -128,10 +243,11 @@ class ServiceOrderEditorViewModel @Inject constructor(
     }
 
     fun validateForPublication(): Boolean {
-        val check = if (_state.value.status == ServiceOrderStatus.CONCLUIDA) {
-            ServiceOrderValidation.validateForCompletion(_state.value.toStructured())
-        } else {
-            ServiceOrderValidation.validateForPublication(_state.value.toStructured())
+        val current = _state.value
+        val check = when {
+            current.flow == ServiceOrderFlow.UPDATE -> ServiceOrderValidation.validateForUpdate(current.toStructured())
+            current.applicableRemoteAction == dev.claudiocodigo.nexo.domain.publication.OutboxAction.FINALIZE -> ServiceOrderValidation.validateForCompletion(current.toStructured())
+            else -> ServiceOrderValidation.validateForPublication(current.toStructured())
         }
 
         return when (check) {
@@ -169,8 +285,45 @@ class ServiceOrderEditorViewModel @Inject constructor(
 
     private fun mutate(transform: (ServiceOrderEditorState) -> ServiceOrderEditorState) {
         revision++
-        _state.update { transform(it).copy(saveState = EditorSaveState.Saving, validationError = null) }
+        _state.update {
+            val next = transform(it)
+            val nextRevision = it.draftRevision + 1
+            next.copy(
+                draftRevision = nextRevision,
+                updateDraftRevision = if (next.flow == ServiceOrderFlow.UPDATE) nextRevision else next.updateDraftRevision,
+                saveState = EditorSaveState.Saving,
+                validationError = null
+            )
+        }
         scheduleAutosave()
+    }
+
+    private fun validateStep(step: EditorStep): String? {
+        val current = _state.value
+        return when (step) {
+            EditorStep.IDENTIFICACAO -> when {
+                current.title.isBlank() -> "Informe o título do atendimento para continuar."
+                current.clientName.isBlank() -> "Informe o cliente ou empresa para continuar."
+                current.unitName.isBlank() -> "Informe o local ou unidade para continuar."
+                else -> null
+            }
+            EditorStep.DEMANDA -> if (current.originalDemand.isBlank()) {
+                "Descreva a demanda ou solicitação original para continuar."
+            } else null
+            EditorStep.ATUALIZACAO -> if (current.updateDraft.isBlank()) {
+                "Informe o texto da atualização para continuar."
+            } else null
+            EditorStep.CONCLUSAO -> null
+        }
+    }
+
+    fun discardDraft(onDiscarded: () -> Unit) {
+        autosaveJob?.cancel()
+        val orderId = _state.value.id
+        viewModelScope.launch {
+            repository.deleteStructuredOrder(orderId)
+            onDiscarded()
+        }
     }
 
     private fun scheduleAutosave() {
@@ -183,13 +336,18 @@ class ServiceOrderEditorViewModel @Inject constructor(
 
     private suspend fun persistCurrent(): Boolean = saveMutex.withLock {
         val current = _state.value
+        if (!current.hasMeaningfulContent) {
+            _state.update { it.copy(saveState = EditorSaveState.Idle) }
+            return false
+        }
         val structured = current.toStructured()
         val result = runCatching {
             repository.saveStructuredOrder(structured)
             preferences.saveRecentSelections(
                 technician = current.technician,
                 client = current.clientName,
-                unit = current.unitName
+                unit = current.unitName,
+                category = current.category
             )
         }
         result.onSuccess {

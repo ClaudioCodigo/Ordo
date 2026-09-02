@@ -8,6 +8,7 @@ import dev.claudiocodigo.nexo.data.local.NexoDatabase
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
+import dev.claudiocodigo.nexo.domain.serviceorder.ConclusionState
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderItem
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderUpdate
@@ -166,5 +167,29 @@ class RoomServiceOrderRepositoryTest {
         assertEquals(1, retrieved?.versions?.size)
         assertEquals("OS Concluída com sucesso", retrieved?.versions?.get(0)?.formattedDescription)
         assertEquals("João", retrieved?.technician)
+    }
+
+    @Test
+    fun saveStructuredOrder_persistsExplicitConclusionStatesAcrossReload() = runTest {
+        listOf(
+            ConclusionState.NAO_CONCLUIDO,
+            ConclusionState.CONCLUIDO_COM_PENDENCIAS
+        ).forEach { conclusionState ->
+            val order = StructuredServiceOrder(
+                id = UUID.randomUUID(),
+                title = "OS com estado explícito",
+                clientName = "Cliente",
+                unitName = "Local",
+                originalDemand = "Demanda",
+                conclusionState = conclusionState
+            )
+
+            repository.saveStructuredOrder(order)
+
+            assertEquals(
+                conclusionState,
+                repository.getStructuredOrderById(order.id)?.conclusionState
+            )
+        }
     }
 }

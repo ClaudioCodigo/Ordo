@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import dev.claudiocodigo.nexo.domain.publication.OutboxAction
 import java.util.UUID
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,6 +205,21 @@ fun PublicationPreviewScreen(
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text("SUMMARY", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            Text(
+                                text = s.order.baseSnapshot?.rawSummary ?: dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderRenderer.renderSummary(s.order),
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("PERÍODO", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.forLanguageTag("pt-BR"))
+                            Text("${s.order.scheduledStart?.let { dateFormat.format(Date(it)) } ?: "—"} → ${s.order.scheduledEnd?.let { dateFormat.format(Date(it)) } ?: "—"}")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         text = "PRÉVIA DO TEXTO (DESCRIPTION)",
                         style = MaterialTheme.typography.labelMedium,
@@ -228,6 +246,24 @@ fun PublicationPreviewScreen(
                     }
 
                     Spacer(modifier = Modifier.height(30.dp))
+                }
+
+                if (s.pendingOverwriteRequest) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = onBack,
+                        title = { Text("Atualizar OS Finalizada") },
+                        text = { Text("Você está atualizando uma OS que já possui uma publicação pendente ou finalizada no mesmo dia. Deseja substituir a publicação anterior pela atual?") },
+                        confirmButton = {
+                            Button(onClick = { viewModel.confirmPublication(forceOverwrite = true) }) {
+                                Text("Substituir")
+                            }
+                        },
+                        dismissButton = {
+                            OutlinedButton(onClick = onBack) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
                 }
             }
         }

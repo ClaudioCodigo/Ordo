@@ -7,11 +7,9 @@ import dev.claudiocodigo.nexo.data.local.dao.CalendarSyncStateDao
 import dev.claudiocodigo.nexo.data.local.entity.CalendarSyncStateEntity
 import dev.claudiocodigo.nexo.data.local.entity.RemoteEventEntity
 import dev.claudiocodigo.nexo.domain.caldav.CalDavCredentials
-import dev.claudiocodigo.nexo.domain.caldav.CalDavDiscoveryClient
 import dev.claudiocodigo.nexo.domain.caldav.CalDavReadClient
 import dev.claudiocodigo.nexo.domain.caldav.CalendarSyncCoordinator
 import dev.claudiocodigo.nexo.domain.caldav.CredentialStore
-import dev.claudiocodigo.nexo.domain.caldav.DiscoveryResult
 import dev.claudiocodigo.nexo.domain.caldav.FailureKind
 import dev.claudiocodigo.nexo.domain.caldav.SyncOutcome
 import dev.claudiocodigo.nexo.domain.caldav.SyncCollectionUnsupportedException
@@ -41,8 +39,7 @@ class RoomCalendarSyncCoordinator @Inject constructor(
     private val readClient: CalDavReadClient,
     private val eventDao: RemoteEventDao,
     private val syncStateDao: CalendarSyncStateDao,
-    private val clock: ClockProvider,
-    private val discoveryClient: CalDavDiscoveryClient? = null
+    private val clock: ClockProvider
 ) : CalendarSyncCoordinator {
 
     private val _isSyncing = MutableStateFlow(false)
@@ -61,35 +58,10 @@ class RoomCalendarSyncCoordinator @Inject constructor(
 
     private suspend fun doSync(): SyncOutcome {
         val identity = credentialStore.readAccount() ?: return SyncOutcome.SkippedNoAccount
-        val password = credentialStore.readAppPassword() ?: return SyncOutcome.SkippedNoAccount
         val accountId = setupRepository.ensureAccount(identity.server, identity.user)
-
-        var calendar = setupRepository.observeSelectedCalendar().first()
-        if (calendar == null) {
-            val existingCalendars = setupRepository.observeCalendars(accountId).first()
-            if (existingCalendars.isNotEmpty()) {
-                val defaultCal = existingCalendars.firstOrNull { cal ->
-                    val name = cal.displayName?.lowercase().orEmpty()
-                    val href = cal.href.lowercase()
-                    name.contains("pessoal") || name.contains("personal") || name.contains("ordens") || name.contains("trabalho") ||
-                        href.contains("personal") || href.contains("default")
-                } ?: existingCalendars.firstOrNull { it.hasWritePrivilege } ?: existingCalendars.first()
-                setupRepository.selectWorkingCalendar(accountId, defaultCal.href)
-                calendar = defaultCal
-            } else if (discoveryClient != null) {
-                val credentialsForDiscovery = CalDavCredentials(identity.server, identity.user, password.copyOf())
-                val discovery = runCatching { discoveryClient?.discover(credentialsForDiscovery) }.getOrNull()
-                if (discovery is DiscoveryResult.Success && discovery.calendars.isNotEmpty()) {
-                    setupRepository.saveCalendars(accountId, discovery.calendars)
-                    calendar = setupRepository.observeSelectedCalendar().first()
-                }
-            }
-        }
-
-        if (calendar == null) {
-            password.fill('\u0000')
-            return SyncOutcome.SkippedNoAccount
-        }
+        val calendar = setupRepository.observeSelectedCalendar().first()
+            ?: return SyncOutcome.SkippedNoAccount
+        val password = credentialStore.readAppPassword() ?: return SyncOutcome.SkippedNoAccount
 
         val credentials = CalDavCredentials(identity.server, identity.user, password)
         password.fill('\u0000')
@@ -165,6 +137,7 @@ class RoomCalendarSyncCoordinator @Inject constructor(
         val fetched = fetchCanonical(calendarHref, changedHrefs, credentials)
         val now = clock.nowMillis()
         val remoteEvents = fetched.mapNotNull { RemoteEventMapper.map(it, accountId, calendarHref, now) }
+        if (remoteEvents.size != fetched.size) throw CalDavParseException("Evento CalDAV inválido ou incompleto")
         val removed = existing.keys.filter { it !in currentHrefs }
         applyCache(accountId, calendarHref, existing, remoteEvents, removed, listing.syncToken, now)
         return SyncOutcome.Success(
@@ -188,6 +161,7 @@ class RoomCalendarSyncCoordinator @Inject constructor(
         val fetched = fetchCanonical(calendarHref, changed.map { it.href }, credentials)
         val now = clock.nowMillis()
         val remoteEvents = fetched.mapNotNull { RemoteEventMapper.map(it, accountId, calendarHref, now) }
+        if (remoteEvents.size != fetched.size) throw CalDavParseException("Evento CalDAV inválido ou incompleto")
         val actuallyRemoved = removedHrefs.intersect(existing.keys)
         applyCache(accountId, calendarHref, existing, remoteEvents, actuallyRemoved.toList(), delta.newToken, now)
         return SyncOutcome.Success(
@@ -205,7 +179,11 @@ class RoomCalendarSyncCoordinator @Inject constructor(
     ): List<dev.claudiocodigo.nexo.domain.caldav.EventResource> {
         val fetched = mutableListOf<dev.claudiocodigo.nexo.domain.caldav.EventResource>()
         for (chunk in hrefs.chunked(BATCH_SIZE)) fetched += readClient.fetchEvents(calendarHref, chunk, credentials)
-        return fetched.map { it.copy(href = canonicalHref(calendarHref, it.href)) }
+        val canonical = fetched.map { it.copy(href = canonicalHref(calendarHref, it.href)) }
+        if (canonical.map { it.href }.toSet() != hrefs.toSet()) {
+            throw CalDavParseException("Resposta parcial ao buscar eventos CalDAV")
+        }
+        return canonical
     }
 
     private suspend fun applyCache(

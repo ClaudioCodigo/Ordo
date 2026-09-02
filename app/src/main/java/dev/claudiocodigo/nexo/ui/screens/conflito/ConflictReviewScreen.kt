@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -89,6 +90,38 @@ fun ConflictReviewScreen(
         when (val s = state) {
             ConflictUiState.Loading -> Text("Carregando versões em conflito...", modifier = Modifier.padding(padding).padding(16.dp))
             is ConflictUiState.Error -> Text(s.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(padding).padding(16.dp))
+            is ConflictUiState.DeletedRemotely -> {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Rounded.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(64.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "A Ordem de Serviço foi excluída no servidor.",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (s.isDraft) {
+                            "Você tem edições locais não publicadas. Deseja republicar esta OS como um novo evento ou descartar suas edições locais?"
+                        } else {
+                            "Deseja republicar esta OS como um novo evento ou removê-la do aplicativo também?"
+                        },
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Button(onClick = { viewModel.recreateLocally(onResolved) }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                        Text("Recriar a OS (Republicar)")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.OutlinedButton(onClick = { viewModel.discardLocally(onResolved) }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                        Text("Descartar Localmente")
+                    }
+                }
+            }
             is ConflictUiState.Ready -> {
                 Column(
                     modifier = Modifier

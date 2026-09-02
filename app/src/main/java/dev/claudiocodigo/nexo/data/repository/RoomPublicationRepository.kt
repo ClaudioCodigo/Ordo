@@ -4,6 +4,7 @@ import dev.claudiocodigo.nexo.data.local.NexoDatabase
 import dev.claudiocodigo.nexo.data.local.dao.PublicationOutboxDao
 import dev.claudiocodigo.nexo.data.local.dao.ServiceOrderStoreDao
 import dev.claudiocodigo.nexo.data.local.entity.PublicationOutboxEntity
+import dev.claudiocodigo.nexo.data.local.entity.ServiceOrderEntity
 import dev.claudiocodigo.nexo.data.local.entity.ServiceOrderVersionEntity
 import dev.claudiocodigo.nexo.domain.publication.ConfirmedPreviewSnapshot
 import dev.claudiocodigo.nexo.domain.publication.OutboxAction
@@ -31,7 +32,7 @@ class RoomPublicationRepository @Inject constructor(
     override suspend fun getLatestForOrder(orderId: UUID): OutboxOperation? =
         outboxDao.getLatestForOrder(orderId)?.let(::toDomain)
 
-    override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot): OutboxOperation {
+    override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot, forceOverwrite: Boolean): OutboxOperation {
         val opId = UUID.randomUUID()
         val now = System.currentTimeMillis()
 
@@ -42,11 +43,26 @@ class RoomPublicationRepository @Inject constructor(
             payloadIcs = snapshot.rawIcsPayload,
             ifMatchEtag = snapshot.baseEtag,
             status = OutboxStatus.PENDING,
+            confirmedRevision = snapshot.confirmedRevision,
             createdAt = now,
             updatedAt = now
         )
 
         database.withTransaction {
+            val currentOrder = storeDao.getStructuredOrderById(snapshot.orderId)
+            val hasActive = outboxDao.hasActiveOperation(snapshot.orderId)
+            val hasBlocking = outboxDao.hasBlockingOperation(snapshot.orderId) && currentOrder?.publicationState != dev.claudiocodigo.nexo.domain.serviceorder.PublicationState.LOCAL_DRAFT
+            
+            if (hasActive || hasBlocking) {
+                if (forceOverwrite) {
+                    outboxDao.clearPendingForOrder(snapshot.orderId)
+                } else {
+                    throw IllegalStateException("BLOCKED_BY_PENDING")
+                }
+            }
+            // A conflict review changes the order back to LOCAL_DRAFT. Only then
+            // is the resolved conflict record retired before the new publication.
+            outboxDao.clearConflictsForOrder(snapshot.orderId)
             val nextVersionNum =
                 (storeDao.getVersionsByOrderId(snapshot.orderId).maxOfOrNull { it.versionNumber } ?: 0) + 1
             val versionEntity = ServiceOrderVersionEntity(
@@ -55,11 +71,15 @@ class RoomPublicationRepository @Inject constructor(
                 versionNumber = nextVersionNum,
                 formattedDescription = snapshot.formattedDescription,
                 publishedEtag = null,
-                publishedAt = now
+                publishedAt = now,
+                confirmedRevision = snapshot.confirmedRevision
             )
 
             storeDao.upsertVersion(versionEntity)
             outboxDao.insert(toEntity(operation))
+            storeDao.getStructuredOrderById(snapshot.orderId)?.let {
+                storeDao.upsertOrder(ServiceOrderEntity.fromStructured(it.copy(publicationState = dev.claudiocodigo.nexo.domain.serviceorder.PublicationState.QUEUED)))
+            }
         }
 
         return operation
@@ -73,7 +93,11 @@ class RoomPublicationRepository @Inject constructor(
     }
 
     override suspend fun markSent(operationId: UUID, newEtag: String?, nowMillis: Long) {
-        outboxDao.markSent(operationId, nowMillis)
+        database.withTransaction {
+            val operation = outboxDao.getById(operationId)
+            outboxDao.markSent(operationId, nowMillis)
+            operation?.let { storeDao.markVersionPublished(it.orderId, it.confirmedRevision, newEtag, nowMillis) }
+        }
     }
 
     override suspend fun markConflict(operationId: UUID, reason: String, nowMillis: Long) {
@@ -89,6 +113,16 @@ class RoomPublicationRepository @Inject constructor(
         return outboxDao.deleteIfPending(operationId) > 0
     }
 
+    override suspend fun cancelOperation(operationId: UUID): Boolean {
+        return outboxDao.deleteOperation(operationId) > 0
+    }
+
+    override suspend fun cancelAllForOrder(orderId: UUID) {
+        // Clearing anything pending, sending, failed, or conflicts
+        outboxDao.clearPendingForOrder(orderId)
+        outboxDao.clearConflictsForOrder(orderId)
+    }
+
     private fun toDomain(entity: PublicationOutboxEntity): OutboxOperation = OutboxOperation(
         id = entity.id,
         orderId = entity.orderId,
@@ -99,7 +133,8 @@ class RoomPublicationRepository @Inject constructor(
         lastError = entity.lastError,
         retryCount = entity.retryCount,
         createdAt = entity.createdAt,
-        updatedAt = entity.updatedAt
+        updatedAt = entity.updatedAt,
+        confirmedRevision = entity.confirmedRevision
     )
 
     private fun toEntity(domain: OutboxOperation): PublicationOutboxEntity = PublicationOutboxEntity(
@@ -112,6 +147,7 @@ class RoomPublicationRepository @Inject constructor(
         lastError = domain.lastError,
         retryCount = domain.retryCount,
         createdAt = domain.createdAt,
-        updatedAt = domain.updatedAt
+        updatedAt = domain.updatedAt,
+        confirmedRevision = domain.confirmedRevision
     )
 }

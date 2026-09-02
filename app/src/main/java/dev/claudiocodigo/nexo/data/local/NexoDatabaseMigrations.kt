@@ -8,6 +8,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * Migration 1 -> 2 adds the Fase 2 tables (account, calendar, remote event mirror and sync state).
  * Migration 2 -> 3 adds the Fase 3 structured service order tables and additive columns.
+ * Migration 3 -> 4 persists the explicit service-order conclusion state.
+ * Migration 4 -> 5 adds the guided-flow fields and immutable confirmation revisions.
  *
  * Existing rows and local drafts are preserved byte-for-byte; no migration is destructive.
  */
@@ -114,6 +116,65 @@ object NexoDatabaseMigrations {
     val MIGRATION_2_3: Migration = object : Migration(2, 3) {
         override fun migrate(db: SupportSQLiteDatabase) {
             MIGRATION_2_3_SQL.forEach { db.execSQL(it) }
+        }
+    }
+
+    /** SQL applied by the 3 -> 4 migration. Existing rows remain non-final by default. */
+    val MIGRATION_3_4_SQL: List<String> = listOf(
+        "ALTER TABLE `service_orders` ADD COLUMN `conclusionState` TEXT NOT NULL DEFAULT 'NAO_DEFINIDO'"
+    )
+
+    val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_3_4_SQL.forEach { db.execSQL(it) }
+        }
+    }
+
+    /** SQL applied by the 4 -> 5 migration. All additions have safe defaults. */
+    val MIGRATION_4_5_SQL: List<String> = listOf(
+        "ALTER TABLE `service_orders` ADD COLUMN `flow` TEXT NOT NULL DEFAULT 'RESOLUTION'",
+        "ALTER TABLE `service_orders` ADD COLUMN `technicalOpinion` TEXT NOT NULL DEFAULT 'CONCLUDED'",
+        "ALTER TABLE `service_orders` ADD COLUMN `observations` TEXT",
+        "ALTER TABLE `service_orders` ADD COLUMN `updateDraft` TEXT",
+        "ALTER TABLE `service_orders` ADD COLUMN `updateDraftRevision` INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE `service_orders` ADD COLUMN `draftRevision` INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE `service_orders` ADD COLUMN `officialNumberJustAssigned` INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE `service_orders` ADD COLUMN `allDay` INTEGER NOT NULL DEFAULT 0",
+        "UPDATE `service_orders` SET `flow` = 'REQUEST' WHERE `preset` = 'SERVICO_SOLICITADO'",
+        "UPDATE `service_orders` SET `technicalOpinion` = 'NOT_CONCLUDED' WHERE `conclusionState` = 'NAO_CONCLUIDO'",
+        "UPDATE `service_orders` SET `conclusionState` = 'NAO_CONCLUIDO', `technicalOpinion` = 'NOT_CONCLUDED' WHERE `conclusionState` = 'CONCLUIDO_COM_PENDENCIAS'",
+        "ALTER TABLE `service_order_versions` ADD COLUMN `confirmedRevision` INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE `publication_outbox` ADD COLUMN `confirmedRevision` INTEGER NOT NULL DEFAULT 0"
+    )
+
+    val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_4_5_SQL.forEach { db.execSQL(it) }
+        }
+    }
+
+    /** Direct paths are kept for installations that skipped intermediate app versions. */
+    val MIGRATION_3_5: Migration = object : Migration(3, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_3_4_SQL.forEach { db.execSQL(it) }
+            MIGRATION_4_5_SQL.forEach { db.execSQL(it) }
+        }
+    }
+
+    val MIGRATION_2_5: Migration = object : Migration(2, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_2_3_SQL.forEach { db.execSQL(it) }
+            MIGRATION_3_4_SQL.forEach { db.execSQL(it) }
+            MIGRATION_4_5_SQL.forEach { db.execSQL(it) }
+        }
+    }
+
+    val MIGRATION_1_5: Migration = object : Migration(1, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            MIGRATION_1_2_SQL.forEach { db.execSQL(it) }
+            MIGRATION_2_3_SQL.forEach { db.execSQL(it) }
+            MIGRATION_3_4_SQL.forEach { db.execSQL(it) }
+            MIGRATION_4_5_SQL.forEach { db.execSQL(it) }
         }
     }
 }

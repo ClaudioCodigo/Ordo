@@ -1,18 +1,22 @@
 package dev.claudiocodigo.nexo.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
 import androidx.room.PrimaryKey
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.domain.serviceorder.PublicationState
+import dev.claudiocodigo.nexo.domain.serviceorder.ConclusionState
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
+import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderFlow
+import dev.claudiocodigo.nexo.domain.serviceorder.TechnicalOpinion
 import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import java.util.UUID
 
 /**
  * The canonical local database entity for a Service Order.
  *
- * In Schema v3, new additive columns support rich structured workflow without
+ * Schema v5 persists the guided flow, technical opinion and draft revisions.
  * breaking legacy Phase 1 drafts or requiring destructive migrations.
  */
 @Entity(tableName = "service_orders")
@@ -35,6 +39,22 @@ data class ServiceOrderEntity(
     val closureCause: String? = null,
     val closureSolution: String? = null,
     val closurePending: String? = null,
+    @ColumnInfo(defaultValue = "'NAO_DEFINIDO'")
+    val conclusionState: String = ConclusionState.NAO_DEFINIDO.name,
+    @ColumnInfo(defaultValue = "'RESOLUTION'")
+    val flow: String = ServiceOrderFlow.RESOLUTION.name,
+    @ColumnInfo(defaultValue = "'CONCLUDED'")
+    val technicalOpinion: String = TechnicalOpinion.CONCLUDED.name,
+    val observations: String? = null,
+    val updateDraft: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val updateDraftRevision: Long = 0L,
+    @ColumnInfo(defaultValue = "0")
+    val draftRevision: Long = 0L,
+    @ColumnInfo(defaultValue = "0")
+    val officialNumberJustAssigned: Boolean = false,
+    @ColumnInfo(defaultValue = "0")
+    val allDay: Boolean = false,
     val sequence: Int? = null,
     val scheduledStart: Long? = null,
     val scheduledEnd: Long? = null
@@ -80,6 +100,21 @@ data class ServiceOrderEntity(
         closureCause = closureCause,
         closureSolution = closureSolution,
         closurePending = closurePending,
+        conclusionState = ConclusionState.entries.firstOrNull { it.name == conclusionState }
+            ?: ConclusionState.NAO_DEFINIDO,
+        flow = ServiceOrderFlow.entries.firstOrNull { it.name == flow }
+            ?: when (ServiceOrderPreset.entries.firstOrNull { it.name == preset }) {
+                ServiceOrderPreset.SERVICO_SOLICITADO -> ServiceOrderFlow.REQUEST
+                else -> ServiceOrderFlow.RESOLUTION
+            },
+        technicalOpinion = TechnicalOpinion.entries.firstOrNull { it.name == technicalOpinion }
+            ?: TechnicalOpinion.CONCLUDED,
+        observations = observations,
+        updateDraft = updateDraft,
+        updateDraftRevision = updateDraftRevision,
+        draftRevision = draftRevision,
+        officialNumberJustAssigned = officialNumberJustAssigned,
+        allDay = allDay,
         sequence = sequence,
         scheduledStart = scheduledStart ?: scheduledDate,
         scheduledEnd = scheduledEnd,
@@ -124,6 +159,15 @@ data class ServiceOrderEntity(
             closureCause = structured.closureCause,
             closureSolution = structured.closureSolution,
             closurePending = structured.closurePending,
+            conclusionState = structured.conclusionState.name,
+            flow = structured.normalizedFlow().name,
+            technicalOpinion = structured.technicalOpinion.name,
+            observations = structured.observations,
+            updateDraft = structured.updateDraft,
+            updateDraftRevision = structured.updateDraftRevision,
+            draftRevision = structured.draftRevision,
+            officialNumberJustAssigned = structured.officialNumberJustAssigned,
+            allDay = structured.allDay,
             sequence = structured.sequence,
             scheduledStart = structured.scheduledStart,
             scheduledEnd = structured.scheduledEnd

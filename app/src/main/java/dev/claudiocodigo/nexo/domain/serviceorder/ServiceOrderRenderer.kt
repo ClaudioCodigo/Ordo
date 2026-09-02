@@ -4,103 +4,124 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Deterministic renderer that produces standardized iCalendar DESCRIPTION text.
- *
- * Rules:
- * - Update projection: Identification + Original Demand + Chronological Updates + Equipments + Current Pendencies;
- * - Completion projection: Identification + Original Demand + Cause + Solution + Equipments + Pendencies + "Estado: Concluído" + "Data de Conclusão";
- * - Historical intermediate updates are omitted from the remote final completion text (preserved locally in Room);
- * - Execution date (dd/MM/yyyy) is placed in the conclusion section; time of day is strictly omitted (belongs to DTSTART/DTEND).
- */
+/** Deterministic renderer for the DESCRIPTION and SUMMARY sent to CalDAV. */
 object ServiceOrderRenderer {
-
     private fun formatDate(epochMillis: Long): String =
         SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("pt-BR")).format(Date(epochMillis))
 
-    fun renderUpdate(order: StructuredServiceOrder, executionDate: Long = System.currentTimeMillis()): String = buildString {
-        appendHeader(this, order)
-
-        val demandLabel = if (order.preset == ServiceOrderPreset.SERVICO_SOLICITADO) "Solicitação" else "Demanda"
-        appendLine("$demandLabel:")
-        appendLine(order.originalDemand.ifBlank { "Não informada" }.trim())
-        appendLine()
-
-        if (order.updates.isNotEmpty()) {
-            appendLine("Atualizações:")
-            val sortedUpdates = order.updates.sortedWith(
-                compareBy<ServiceOrderUpdate> { it.executionDate }
-                    .thenBy { it.createdAt }
-                    .thenBy { it.id }
-            )
-            for (update in sortedUpdates) {
-                appendLine("[${formatDate(update.executionDate)}]: ${update.text.trim()}")
-            }
-            appendLine()
+    fun renderUpdate(
+        order: StructuredServiceOrder,
+        executionDate: Long = System.currentTimeMillis(),
+        previousDescription: String? = order.baseSnapshot?.rawDescription
+    ): String {
+        if (order.normalizedFlow() == ServiceOrderFlow.UPDATE) {
+            val updateText = order.updateDraft?.trim()
+                ?: order.updates.maxByOrNull { it.sequenceOrder }?.text?.trim().orEmpty()
+            return buildString {
+                appendHeader(this, order)
+                appendLine("Atualização:")
+                appendLine(updateText)
+                if (!order.observations.isNullOrBlank()) {
+                    appendLine()
+                    appendObservations(this, order.observations)
+                }
+                if (!previousDescription.isNullOrBlank()) {
+                    appendLine()
+                    appendLine("----- Histórico Remoto Preservado -----")
+                    appendLine()
+                    append(previousDescription)
+                }
+            }.trimEnd()
         }
 
-        if (order.items.isNotEmpty()) {
-            appendLine("Equipamentos / Itens:")
-            for (item in order.items) {
-                val details = listOfNotNull(item.brand, item.model, item.serialNumber?.let { "S/N: $it" })
-                    .joinToString(" ")
-                val desc = if (details.isNotEmpty()) "${item.action}: ${item.itemType} ($details)" else "${item.action}: ${item.itemType}"
-                appendLine("- $desc")
-            }
+        // Compatibility with old drafts that stored a list of field updates.
+        return buildString {
+            appendHeader(this, order)
+            val demandLabel = if (order.normalizedFlow() == ServiceOrderFlow.REQUEST) "Solicitação" else "Demanda"
+            appendLine("$demandLabel:")
+            appendLine(order.originalDemand.ifBlank { "Não informada" }.trim())
             appendLine()
-        }
-
-        val pending = order.closurePending?.trim()
-        appendLine("Pendências:")
-        appendLine(if (pending.isNullOrBlank()) "Nenhuma" else pending)
-    }.trim()
-
-    fun renderCompletion(order: StructuredServiceOrder, executionDate: Long = System.currentTimeMillis()): String = buildString {
-        appendHeader(this, order)
-
-        val demandLabel = if (order.preset == ServiceOrderPreset.SERVICO_SOLICITADO) "Solicitação" else "Demanda"
-        appendLine("$demandLabel:")
-        appendLine(order.originalDemand.ifBlank { "Não informada" }.trim())
-        appendLine()
-
-        if (order.preset == ServiceOrderPreset.DIAGNOSTICO_CORRECAO) {
-            order.closureCause?.takeIf { it.isNotBlank() }?.let {
-                appendLine("Causa:")
-                appendLine(it.trim())
+            if (order.conclusionState == ConclusionState.NAO_CONCLUIDO) {
+                appendLine("Estado: Não concluído")
                 appendLine()
             }
-        }
-
-        val solutionLabel = if (order.preset == ServiceOrderPreset.SERVICO_SOLICITADO) "Ação Realizada" else "Solução"
-        appendLine("$solutionLabel:")
-        appendLine(order.closureSolution?.takeIf { it.isNotBlank() }?.trim() ?: "Serviço concluído conforme solicitado.")
-        appendLine()
-
-        if (order.items.isNotEmpty()) {
-            appendLine("Equipamentos / Itens:")
-            for (item in order.items) {
-                val details = listOfNotNull(item.brand, item.model, item.serialNumber?.let { "S/N: $it" })
-                    .joinToString(" ")
-                val desc = if (details.isNotEmpty()) "${item.action}: ${item.itemType} ($details)" else "${item.action}: ${item.itemType}"
-                appendLine("- $desc")
+            if (order.updates.isNotEmpty()) {
+                appendLine("Atualizações:")
+                order.updates.sortedWith(compareBy<ServiceOrderUpdate> { it.executionDate }.thenBy { it.createdAt }.thenBy { it.id })
+                    .forEach { appendLine("[${formatDate(it.executionDate)}]: ${it.text.trim()}") }
+                appendLine()
             }
+            appendLine("Pendências:")
+            appendLine(order.closurePending?.trim().takeUnless { it.isNullOrBlank() } ?: "Nenhuma")
+            if (!order.observations.isNullOrBlank()) {
+                appendLine()
+                appendObservations(this, order.observations)
+            }
+        }.trim()
+    }
+
+    fun renderCompletion(order: StructuredServiceOrder, executionDate: Long = System.currentTimeMillis()): String =
+        buildString {
+            appendHeader(this, order)
+            appendLine("Estado: ${technicalState(order)}")
+            appendLine("Data de Conclusão: ${formatDate(executionDate)}")
             appendLine()
+            val request = order.normalizedFlow() == ServiceOrderFlow.REQUEST
+            appendLine(if (request) "Solicitação:" else "Demanda:")
+            appendLine(order.originalDemand.trim())
+            appendLine()
+            if (!request) {
+                appendLine("Causa:")
+                appendLine(order.closureCause?.trim().takeUnless { it.isNullOrBlank() } ?: "N/A")
+                appendLine()
+            }
+            appendLine(if (request) "Ação Realizada:" else "Solução:")
+            appendLine(order.closureSolution?.trim().orEmpty())
+            appendLine()
+            appendLine("Pendências:")
+            appendLine(order.closurePending?.trim().takeUnless { it.isNullOrBlank() } ?: "Nenhuma")
+            if (!order.observations.isNullOrBlank()) {
+                appendLine()
+                appendObservations(this, order.observations)
+            }
+        }.trim()
+
+    /** New provisional events contain company, placeholder, technician, category, title and location. */
+    fun renderSummary(order: StructuredServiceOrder): String {
+        val company = order.clientName.trim().ifBlank { "EMPRESA" }
+        val number = order.externalId?.trim()?.ifBlank { null }
+        val title = order.title.trim().ifBlank { "ATENDIMENTO" }
+        val location = order.unitName.trim().ifBlank { "LOCAL" }
+        if (number == null) {
+            return listOf(
+                company, "????",
+                order.technician?.trim().takeUnless { it.isNullOrBlank() } ?: "TÉCNICO",
+                order.category?.trim().takeUnless { it.isNullOrBlank() } ?: "CATEGORIA",
+                title, location
+            ).joinToString(" - ")
         }
+        return listOfNotNull(company, number, order.category?.trim().takeUnless { it.isNullOrBlank() }, title, location)
+            .joinToString(" - ")
+    }
 
-        val pending = order.closurePending?.trim()
-        appendLine("Pendências:")
-        appendLine(if (pending.isNullOrBlank()) "Nenhuma" else pending)
-        appendLine()
+    private fun technicalState(order: StructuredServiceOrder): String = when {
+        order.conclusionState == ConclusionState.CONCLUIDO_COM_PENDENCIAS -> "Concluído com pendências"
+        order.technicalOpinion == TechnicalOpinion.NOT_CONCLUDED || order.conclusionState == ConclusionState.NAO_CONCLUIDO -> "Não concluído"
+        else -> "Concluído"
+    }
 
-        appendLine("Estado: Concluído")
-        appendLine("Data de Conclusão: ${formatDate(executionDate)}")
-    }.trim()
+    private fun appendObservations(builder: StringBuilder, observations: String?) {
+        if (!observations.isNullOrBlank()) {
+            builder.appendLine("Observações:")
+            builder.appendLine(observations.trim())
+        }
+    }
 
     private fun appendHeader(builder: StringBuilder, order: StructuredServiceOrder) {
-        val osNumber = order.externalId?.takeIf { it.isNotBlank() } ?: "SEM OS"
-        builder.appendLine("OS: $osNumber")
-        builder.appendLine("Cliente: ${order.clientName.ifBlank { "Não informado" }} - ${order.unitName.ifBlank { "Unidade não informada" }}")
-        order.technician?.takeIf { it.isNotBlank() }?.let { builder.appendLine("Técnico: $it") }
+        builder.appendLine("OS: ${order.externalId?.trim().takeUnless { it.isNullOrBlank() } ?: "????"}")
+        builder.appendLine("Cliente: ${order.clientName.trim()}")
+        builder.appendLine("Local: ${order.unitName.trim()}")
+        builder.appendLine("Técnico: ${order.technician?.trim().orEmpty()}")
         builder.appendLine()
     }
 }

@@ -1,0 +1,34 @@
+BEGIN:VCALENDAR
+CALSCALE:GREGORIAN
+VERSION:2.0
+PRODID:-//Codespark//OneCalendar//EN
+BEGIN:VEVENT
+UID:d14d7589-1d06-44d9-827a-14ae95f09c96
+DTSTART;TZID=America/Sao_Paulo:20260831T090000
+DTEND;TZID=America/Sao_Paulo:20260831T110000
+STATUS:CONFIRMED
+SUMMARY:PIER - 15479 - CFTV - REVISAR CÂMERAS  - ARM5
+CREATED:20260828T211927Z
+TRANSP:OPAQUE
+DTSTAMP:20260831T192806Z
+LAST-MODIFIED:20260831T192806Z
+SEQUENCE:10
+DESCRIPTION:OS: 15479\nCliente: PIER - Armazém 5\nTécnico: Claudio\n\nDem
+ anda:\nREVISAR TODAS AS CÂMERAS DO ARM 5\n\nEstado: Concluído\nData de Co
+ nclusão: 31/08/2026\n\nCausa:\nN/A\n\nSolução:\nFoi realizado a revisão
+  do funcionamento e ângulo\, de todas as câmeras do armazém 5\, todas as
+  câmeras estavam com bom funcionamento e operantes.\n\nApenas a câmera 10
+ 6 estava inoperante\, que foi prontamente resolvida e validada junto ao CCO
+ S o funcionamento dessa câmera e das demais.\n\nPendências:\nNenhuma
+COLOR:green
+END:VEVENT
+BEGIN:VTIMEZONE
+TZID:America/Sao_Paulo
+BEGIN:STANDARD
+TZNAME:-03
+TZOFFSETFROM:-0300
+TZOFFSETTO:-0300
+DTSTART:19700101T000000
+END:STANDARD
+END:VTIMEZONE
+END:VCALENDAR

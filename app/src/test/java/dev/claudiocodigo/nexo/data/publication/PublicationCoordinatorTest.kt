@@ -184,7 +184,7 @@ class PublicationCoordinatorTest {
         override fun observeOperations(): Flow<List<OutboxOperation>> = flowOf(operations.values.toList())
         override suspend fun getOperationById(id: UUID) = operations[id]
         override suspend fun getLatestForOrder(orderId: UUID) = operations.values.lastOrNull { it.orderId == orderId }
-        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot): OutboxOperation {
+        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot, forceOverwrite: Boolean): OutboxOperation {
             val op = OutboxOperation(
                 orderId = snapshot.orderId,
                 action = snapshot.action,
@@ -212,6 +212,10 @@ class PublicationCoordinatorTest {
             operations[operationId]?.let { operations[operationId] = it.copy(status = status, lastError = reason) }
         }
         override suspend fun cancelPending(operationId: UUID) = operations.remove(operationId) != null
+        override suspend fun cancelOperation(operationId: UUID): Boolean = operations.remove(operationId) != null
+        override suspend fun cancelAllForOrder(orderId: UUID) {
+            operations.entries.removeAll { it.value.orderId == orderId }
+        }
     }
 
     private class FakeServiceOrderRepository : ServiceOrderRepository {

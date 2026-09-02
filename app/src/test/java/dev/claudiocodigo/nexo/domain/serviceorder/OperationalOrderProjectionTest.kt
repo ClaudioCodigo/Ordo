@@ -46,7 +46,7 @@ class OperationalOrderProjectionTest {
     }
 
     @Test
-    fun project_preservesUnlinkedRemoteAndProvisionalLocalAsSeparateCards() {
+    fun project_excludesUnlinkedProvisionalLocalOrdersFromCards() {
         val remoteEvent = makeRemoteEvent("acct1", "/cal/", "/cal/e2.ics", "Atendimento Geral", rawColor = null, start = 2000L)
         val provisionalOrder = StructuredServiceOrder(
             id = UUID.randomUUID(),
@@ -63,15 +63,31 @@ class OperationalOrderProjectionTest {
             outboxOperations = emptyList()
         )
 
-        assertEquals(2, cards.size)
-        // 3000L start comes before 2000L start in newest-first ordering
-        assertEquals("OS Provisória Avulsa", cards[0].title)
+        assertEquals(1, cards.size)
+        assertEquals("Atendimento Geral", cards[0].title)
         assertFalse(cards[0].isLinked)
-        assertEquals(CardNavigationTarget.EDITOR_OS, cards[0].navigationTarget)
+        assertEquals(CardNavigationTarget.EVENTO_REMOTO, cards[0].navigationTarget)
+    }
 
-        assertEquals("Atendimento Geral", cards[1].title)
-        assertFalse(cards[1].isLinked)
-        assertEquals(CardNavigationTarget.EVENTO_REMOTO, cards[1].navigationTarget)
+    @Test
+    fun project_sortsOldestFirstAndPlacesConcludedAtEnd() {
+        val eventEarlyConcluded = makeRemoteEvent("acct1", "/cal/", "/cal/e1.ics", "OS Concluída Cedo", rawColor = "#008000", start = 1000L)
+        val eventEarlyOpen = makeRemoteEvent("acct1", "/cal/", "/cal/e2.ics", "OS Aberta 09h", rawColor = null, start = 2000L)
+        val eventLateOpen = makeRemoteEvent("acct1", "/cal/", "/cal/e3.ics", "OS Aberta 14h", rawColor = null, start = 5000L)
+
+        val cards = OperationalOrderProjection.project(
+            remoteEvents = listOf(eventEarlyConcluded, eventLateOpen, eventEarlyOpen),
+            structuredOrders = emptyList(),
+            outboxOperations = emptyList()
+        )
+
+        assertEquals(3, cards.size)
+        // Open items first (oldest first: 2000L, then 5000L)
+        assertEquals("OS Aberta 09h", cards[0].title)
+        assertEquals("OS Aberta 14h", cards[1].title)
+        // Concluded item (green) at the end
+        assertEquals("OS Concluída Cedo", cards[2].title)
+        assertEquals(OperationalStatus.VALIDADO_EXTERNAMENTE, cards[2].status)
     }
 
     @Test
@@ -125,6 +141,31 @@ class OperationalOrderProjectionTest {
         )
 
         assertEquals(OperationalStatus.AGUARDANDO_VALIDACAO_EXTERNA, cards.first().status)
+    }
+
+    @Test
+    fun project_nonCompletedConclusionRemainsInProgressEvenWithStaleCompletedStatus() {
+        val orderId = UUID.randomUUID()
+        val key = RemoteOccurrenceKey("acct1", "/cal/", "/cal/e-nao-concluida.ics", null)
+        val remoteEvent = makeRemoteEvent("acct1", "/cal/", "/cal/e-nao-concluida.ics", "OS não concluída", rawColor = null, start = 1000L)
+        val order = StructuredServiceOrder(
+            id = orderId,
+            occurrenceKey = key,
+            title = "OS não concluída",
+            clientName = "Cliente",
+            unitName = "Local",
+            status = ServiceOrderStatus.CONCLUIDA,
+            conclusionState = ConclusionState.NAO_CONCLUIDO
+        )
+
+        val card = OperationalOrderProjection.project(
+            remoteEvents = listOf(remoteEvent),
+            structuredOrders = listOf(order),
+            outboxOperations = emptyList()
+        ).single()
+
+        assertEquals(OperationalStatus.EM_ANDAMENTO, card.status)
+        assertFalse(OperationalOrderProjection.isCardConcluded(card))
     }
 
     @Test

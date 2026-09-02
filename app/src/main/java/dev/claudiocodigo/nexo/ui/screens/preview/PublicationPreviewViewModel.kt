@@ -6,7 +6,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.claudiocodigo.nexo.data.ical.IcsDocumentEditor
 import dev.claudiocodigo.nexo.data.ical.IcsParser
 import dev.claudiocodigo.nexo.data.worker.PublicationScheduler
-import dev.claudiocodigo.nexo.domain.model.ServiceOrderStatus
 import dev.claudiocodigo.nexo.domain.publication.ConfirmedPreviewSnapshot
 import dev.claudiocodigo.nexo.domain.publication.OutboxAction
 import dev.claudiocodigo.nexo.domain.publication.PublicationRepository
@@ -37,7 +36,8 @@ sealed interface PreviewUiState {
         val dateDivergence: DateDivergenceCheck,
         val targetCalendarName: String,
         val isConfirming: Boolean = false,
-        val confirmationError: String? = null
+        val confirmationError: String? = null,
+        val pendingOverwriteRequest: Boolean = false
     ) : PreviewUiState
     data object Confirmed : PreviewUiState
     data class Error(val message: String) : PreviewUiState
@@ -65,15 +65,15 @@ class PublicationPreviewViewModel @Inject constructor(
 
             val now = clock.nowMillis()
             val action = when {
-                order.status == ServiceOrderStatus.CONCLUIDA -> OutboxAction.FINALIZE
-                order.occurrenceKey != null -> OutboxAction.UPDATE
-                else -> OutboxAction.CREATE
+                order.occurrenceKey == null -> OutboxAction.CREATE
+                order.normalizedFlow() == dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderFlow.UPDATE -> OutboxAction.UPDATE
+                else -> OutboxAction.FINALIZE
             }
 
             val renderedDescription = if (action == OutboxAction.FINALIZE) {
                 ServiceOrderRenderer.renderCompletion(order, now)
             } else {
-                ServiceOrderRenderer.renderUpdate(order, now)
+                ServiceOrderRenderer.renderUpdate(order, now, order.baseSnapshot?.rawDescription)
             }
 
             val baseIcs = order.baseSnapshot?.rawIcs
@@ -116,7 +116,7 @@ class PublicationPreviewViewModel @Inject constructor(
                     val end = order.scheduledEnd ?: (start + 3600_000L)
                     IcsDocumentEditor.createProvisionalIcs(
                         uid = targetUid,
-                        summary = "${order.externalId?.let { "OS $it - " } ?: ""}${order.title}",
+                        summary = ServiceOrderRenderer.renderSummary(order),
                         description = renderedDescription,
                         startMillis = start,
                         endMillis = end,
@@ -157,10 +157,10 @@ class PublicationPreviewViewModel @Inject constructor(
         }
     }
 
-    fun confirmPublication() {
+    fun confirmPublication(forceOverwrite: Boolean = false) {
         val ready = _uiState.value as? PreviewUiState.Ready ?: return
         if (ready.isConfirming) return
-        _uiState.value = ready.copy(isConfirming = true, confirmationError = null)
+        _uiState.value = ready.copy(isConfirming = true, confirmationError = null, pendingOverwriteRequest = false)
 
         viewModelScope.launch {
             try {
@@ -171,12 +171,25 @@ class PublicationPreviewViewModel @Inject constructor(
                     baseEtag = ready.order.baseSnapshot?.etag,
                     rawIcsPayload = ready.renderedIcs,
                     targetHref = ready.order.occurrenceKey?.eventHref.orEmpty(),
-                    uid = ready.targetUid
+                    uid = ready.targetUid,
+                    confirmedRevision = if (ready.action == OutboxAction.UPDATE) ready.order.updateDraftRevision else ready.order.draftRevision
                 )
 
-                publicationRepository.confirmPreview(snapshot)
+                publicationRepository.confirmPreview(snapshot, forceOverwrite)
                 scheduler.scheduleDrain()
                 _uiState.value = PreviewUiState.Confirmed
+            } catch (illegal: IllegalStateException) {
+                if (illegal.message == "BLOCKED_BY_PENDING") {
+                    _uiState.value = ready.copy(
+                        isConfirming = false,
+                        pendingOverwriteRequest = true
+                    )
+                } else {
+                    _uiState.value = ready.copy(
+                        isConfirming = false,
+                        confirmationError = illegal.message ?: "Já existe uma publicação pendente ou em conflito para esta OS."
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {

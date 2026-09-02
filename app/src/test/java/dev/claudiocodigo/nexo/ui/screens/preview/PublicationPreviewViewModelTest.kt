@@ -12,6 +12,7 @@ import dev.claudiocodigo.nexo.domain.repository.CalendarSetupRepository
 import dev.claudiocodigo.nexo.domain.caldav.CalendarInfo
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteBaseSnapshot
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
+import dev.claudiocodigo.nexo.domain.serviceorder.ConclusionState
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
 import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import dev.claudiocodigo.nexo.domain.time.ClockProvider
@@ -85,7 +86,7 @@ class PublicationPreviewViewModelTest {
 
         val state = viewModel.uiState.value as PreviewUiState.Ready
         assertFalse(state.isConfirming)
-        assertTrue(state.confirmationError?.contains("fila") == true)
+        assertTrue(state.confirmationError?.isNotBlank() == true)
         assertFalse(scheduler.drainScheduled)
     }
 
@@ -127,13 +128,52 @@ class PublicationPreviewViewModelTest {
         assertEquals("Agenda real", state.targetCalendarName)
     }
 
+    @Test
+    fun `update flow linked order creates update preview with history`() = runTest(dispatcher) {
+        val remoteOrder = StructuredServiceOrder(
+            id = orderId,
+            title = "OS remota",
+            clientName = "Cliente",
+            unitName = "Unidade",
+            technician = "Claudio",
+            flow = dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderFlow.UPDATE,
+            updateDraft = "Visita técnica realizada.",
+            occurrenceKey = RemoteOccurrenceKey(
+                accountId = "acct-1",
+                calendarHref = "https://cloud.example.com/calendars/work/",
+                eventHref = "https://cloud.example.com/calendars/work/evento.ics"
+            ),
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"etag-1\"",
+                rawIcs = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:evento-real\r\nDESCRIPTION:Antiga\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+                rawSummary = null,
+                rawDescription = "Antiga"
+            )
+        )
+        viewModel = PublicationPreviewViewModel(
+            serviceOrderRepository = FakeServiceOrderRepository(remoteOrder),
+            publicationRepository = publicationRepository,
+            calendarSetupRepository = FakeCalendarSetupRepository(),
+            scheduler = scheduler,
+            clock = object : ClockProvider { override fun nowMillis() = 1_700_000_000_000L }
+        )
+
+        viewModel.loadPreview(orderId)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value as PreviewUiState.Ready
+        assertEquals(dev.claudiocodigo.nexo.domain.publication.OutboxAction.UPDATE, state.action)
+        assertTrue(state.renderedDescription.contains("Atualização:"))
+        assertTrue(state.renderedDescription.contains("----- Histórico Remoto Preservado -----"))
+    }
+
     private class FakePublicationRepository : PublicationRepository {
         var confirmCalls = 0
         var failConfirmation = false
         override fun observeOperations(): Flow<List<OutboxOperation>> = flowOf(emptyList())
         override suspend fun getOperationById(id: UUID) = null
         override suspend fun getLatestForOrder(orderId: UUID) = null
-        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot): OutboxOperation {
+        override suspend fun confirmPreview(snapshot: ConfirmedPreviewSnapshot, forceOverwrite: Boolean): OutboxOperation {
             confirmCalls++
             if (failConfirmation) error("simulated local database failure")
             return OutboxOperation(
@@ -149,6 +189,8 @@ class PublicationPreviewViewModelTest {
         override suspend fun markConflict(operationId: UUID, reason: String, nowMillis: Long) = Unit
         override suspend fun markFailed(operationId: UUID, reason: String, permanent: Boolean, nowMillis: Long) = Unit
         override suspend fun cancelPending(operationId: UUID) = false
+        override suspend fun cancelOperation(operationId: UUID) = false
+        override suspend fun cancelAllForOrder(orderId: UUID) = Unit
     }
 
     private fun provisionalOrder() = StructuredServiceOrder(

@@ -3,11 +3,7 @@ package dev.claudiocodigo.nexo.ui.screens.conta
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.claudiocodigo.nexo.data.worker.SyncScheduler
-import dev.claudiocodigo.nexo.domain.caldav.CalDavCredentials
-import dev.claudiocodigo.nexo.domain.caldav.CalDavDiscoveryClient
 import dev.claudiocodigo.nexo.domain.caldav.CredentialStore
-import dev.claudiocodigo.nexo.domain.caldav.DiscoveryResult
 import dev.claudiocodigo.nexo.domain.caldav.NextcloudQrParser
 import dev.claudiocodigo.nexo.domain.caldav.ServerUrlNormalizer
 import dev.claudiocodigo.nexo.domain.repository.CalendarSetupRepository
@@ -22,9 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ContaNextcloudViewModel @Inject constructor(
     private val credentialStore: CredentialStore,
-    private val setupRepository: CalendarSetupRepository,
-    private val discoveryClient: CalDavDiscoveryClient? = null,
-    private val syncScheduler: SyncScheduler? = null
+    private val setupRepository: CalendarSetupRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ContaUiState>(ContaUiState.Loading)
@@ -79,30 +73,22 @@ class ContaNextcloudViewModel @Inject constructor(
 
     private fun store(normalizedServer: String, user: String, password: CharArray) {
         _uiState.value = ContaUiState.Validating(normalizedServer, user)
-        val passwordCopy = password.copyOf()
         viewModelScope.launch {
             runCatching {
                 credentialStore.saveAccount(normalizedServer, user)
                 credentialStore.saveAppPassword(password)
             }.onSuccess {
+                // Authentication/discovery is intentionally a separate step.
+                // A later CalDAV failure must not turn a successfully stored
+                // account into a misleading "login failed" state, and only
+                // explicit calendar selection may start synchronization.
                 _uiState.value = ContaUiState.Connected(normalizedServer, user)
-                if (discoveryClient != null) {
-                    val accountId = setupRepository.ensureAccount(normalizedServer, user)
-                    val credentials = CalDavCredentials(normalizedServer, user, passwordCopy)
-                    val discovery = runCatching { discoveryClient.discover(credentials) }.getOrNull()
-                    if (discovery is DiscoveryResult.Success && discovery.calendars.isNotEmpty()) {
-                        setupRepository.saveCalendars(accountId, discovery.calendars)
-                        syncScheduler?.schedulePeriodic()
-                        syncScheduler?.syncNow()
-                    }
-                }
             }.onFailure {
                 _uiState.value = ContaUiState.Disconnected(
                     error = it.message ?: "Não foi possível salvar a conta"
                 )
             }
             password.fill('\u0000')
-            passwordCopy.fill('\u0000')
         }
     }
 

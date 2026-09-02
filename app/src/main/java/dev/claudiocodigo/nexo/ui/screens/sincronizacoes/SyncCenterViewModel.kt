@@ -78,7 +78,7 @@ class SyncCenterViewModel @Inject constructor(
 
     fun cancelOperation(operationId: UUID) {
         viewModelScope.launch {
-            publicationRepository.cancelPending(operationId)
+            publicationRepository.cancelOperation(operationId)
         }
     }
 

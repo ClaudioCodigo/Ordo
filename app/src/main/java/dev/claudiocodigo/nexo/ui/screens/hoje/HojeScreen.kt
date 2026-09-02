@@ -1,6 +1,7 @@
 package dev.claudiocodigo.nexo.ui.screens.hoje
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -41,6 +42,9 @@ import dev.claudiocodigo.nexo.R
 import dev.claudiocodigo.nexo.domain.caldav.EventColor
 import dev.claudiocodigo.nexo.domain.caldav.RemoteEvent
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
+import dev.claudiocodigo.nexo.domain.serviceorder.CardNavigationTarget
+import dev.claudiocodigo.nexo.domain.serviceorder.OperationalOrderCard
+import dev.claudiocodigo.nexo.domain.serviceorder.OperationalStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,17 +52,28 @@ import java.util.Locale
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HojeScreen(
     onNavigateToDetails: (String) -> Unit,
     onNavigateToNewOS: () -> Unit,
+    onNavigateToDrafts: () -> Unit,
     onNavigateToRemoteEvent: (accountId: String, calendarHref: String, href: String) -> Unit,
     viewModel: HojeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isSyncing = (uiState as? HojeUiState.Success)?.isSyncing == true
+    val draftsCount = (uiState as? HojeUiState.Success)?.provisionalDraftsCount ?: 0
+    var showFabMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = Modifier.testTag("screen_hoje"),
@@ -92,8 +107,43 @@ fun HojeScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onNavigateToNewOS) {
-                Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.nova_os))
+            Box {
+                FloatingActionButton(
+                    onClick = {
+                        if (draftsCount > 0) {
+                            showFabMenu = true
+                        } else {
+                            onNavigateToNewOS()
+                        }
+                    },
+                    modifier = Modifier.testTag("fab_new_os")
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = stringResource(R.string.nova_os))
+                }
+
+                DropdownMenu(
+                    expanded = showFabMenu,
+                    onDismissRequest = { showFabMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Criar Nova OS") },
+                        leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                        onClick = {
+                            showFabMenu = false
+                            onNavigateToNewOS()
+                        },
+                        modifier = Modifier.testTag("menu_create_new_os")
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Rascunhos Salvos ($draftsCount)") },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.List, contentDescription = null) },
+                        onClick = {
+                            showFabMenu = false
+                            onNavigateToDrafts()
+                        },
+                        modifier = Modifier.testTag("menu_saved_drafts")
+                    )
+                }
             }
         }
     ) { padding ->
@@ -124,23 +174,37 @@ fun HojeContent(
     onNavigateToDetails: (String) -> Unit,
     onNavigateToRemoteEvent: (accountId: String, calendarHref: String, href: String) -> Unit
 ) {
+    val onCardClick: (OperationalOrderCard) -> Unit = { card ->
+        when (card.navigationTarget) {
+            CardNavigationTarget.EVENTO_REMOTO -> {
+                if (card.remoteAccountId != null && card.remoteCalendarHref != null && card.remoteEventHref != null) {
+                    onNavigateToRemoteEvent(card.remoteAccountId, card.remoteCalendarHref, card.remoteEventHref)
+                } else if (card.localOrderId != null) {
+                    onNavigateToDetails(card.localOrderId.toString())
+                }
+            }
+            CardNavigationTarget.EDITOR_OS, CardNavigationTarget.REVISAO_CONFLITO -> {
+                if (card.localOrderId != null) {
+                    onNavigateToDetails(card.localOrderId.toString())
+                }
+            }
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
         contentPadding = PaddingValues(16.dp)
     ) {
-        if (state.remoteEvents.isNotEmpty()) {
-            item { SectionHeader("Eventos do calendário") }
-            items(state.remoteEvents, key = { "remote_${it.href}" }) { event ->
-                RemoteEventCard(event) {
-                    onNavigateToRemoteEvent(event.accountId, event.calendarHref, event.href)
-                }
+        // 1. Requer Atenção
+        if (state.requerAtencaoCards.isNotEmpty()) {
+            item { SectionHeader("Requer atenção") }
+            items(state.requerAtencaoCards, key = { it.cardId }) { card ->
+                UnifiedOsCard(card = card, onClick = { onCardClick(card) })
             }
             item { Spacer(modifier = Modifier.height(16.dp)) }
-        }
-
-        if (state.remoteEventsRequerAtencao.isNotEmpty()) {
+        } else if (state.remoteEventsRequerAtencao.isNotEmpty()) {
             item { SectionHeader("Eventos requerem atenção") }
             items(state.remoteEventsRequerAtencao, key = { "remote_attention_${it.href}" }) { event ->
                 RemoteEventCard(event) {
@@ -150,7 +214,34 @@ fun HojeContent(
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
 
-        if (state.remoteEventsAtrasados.isNotEmpty()) {
+        // 2. Ordens do Dia (Abertas / Em Andamento)
+        if (state.hojeOpenCards.isNotEmpty()) {
+            item { SectionHeader("Ordens de Serviço do Dia") }
+            items(state.hojeOpenCards, key = { it.cardId }) { card ->
+                UnifiedOsCard(card = card, onClick = { onCardClick(card) })
+            }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        } else if (state.remoteEvents.isNotEmpty()) {
+            item { SectionHeader("Eventos do calendário") }
+            items(state.remoteEvents, key = { "remote_${it.href}" }) { event ->
+                RemoteEventCard(event) {
+                    onNavigateToRemoteEvent(event.accountId, event.calendarHref, event.href)
+                }
+            }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+
+        // 3. Ordens Concluídas / Validadas (Validação de dois fatores)
+        if (state.hojeConcludedCards.isNotEmpty()) {
+            item { SectionHeader("Concluídas e Validadas") }
+            items(state.hojeConcludedCards, key = { it.cardId }) { card ->
+                UnifiedOsCard(card = card, onClick = { onCardClick(card) })
+            }
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+
+        // 4. Overdue events (fallback)
+        if (state.remoteEventsAtrasados.isNotEmpty() && state.hojeCards.isEmpty()) {
             item { SectionHeader("Eventos atrasados") }
             items(state.remoteEventsAtrasados, key = { "remote_overdue_${it.href}" }) { event ->
                 RemoteEventCard(event) {
@@ -160,8 +251,16 @@ fun HojeContent(
             item { Spacer(modifier = Modifier.height(16.dp)) }
         }
 
-        if (state.emAndamento.isEmpty() && state.requerAtencao.isEmpty() && state.pendencias.isEmpty() &&
-            state.remoteEvents.isEmpty() && state.remoteEventsRequerAtencao.isEmpty() && state.remoteEventsAtrasados.isEmpty()) {
+        // Empty state check
+        val isEmpty = state.hojeCards.isEmpty() &&
+            state.emAndamento.isEmpty() &&
+            state.requerAtencao.isEmpty() &&
+            state.pendencias.isEmpty() &&
+            state.remoteEvents.isEmpty() &&
+            state.remoteEventsRequerAtencao.isEmpty() &&
+            state.remoteEventsAtrasados.isEmpty()
+
+        if (isEmpty) {
             item {
                 Text(
                     text = "Nenhuma ordem de serviço para hoje.",
@@ -171,26 +270,30 @@ fun HojeContent(
                 )
             }
         }
-        if (state.emAndamento.isNotEmpty()) {
-            item { SectionHeader("Em andamento") }
-            items(state.emAndamento, key = { "os_${it.id}" }) { os ->
-                ServiceOrderCard(os, onNavigateToDetails)
-            }
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-        }
 
-        if (state.requerAtencao.isNotEmpty()) {
-            item { SectionHeader("Requer atenção") }
-            items(state.requerAtencao, key = { "req_${it.id}" }) { os ->
-                ServiceOrderCard(os, onNavigateToDetails)
+        // Legacy sections fallback
+        if (state.hojeCards.isEmpty()) {
+            if (state.emAndamento.isNotEmpty()) {
+                item { SectionHeader("Em andamento") }
+                items(state.emAndamento, key = { "os_${it.id}" }) { os ->
+                    ServiceOrderCard(os, onNavigateToDetails)
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
             }
-            item { Spacer(modifier = Modifier.height(16.dp)) }
-        }
 
-        if (state.pendencias.isNotEmpty()) {
-            item { SectionHeader("Pendências") }
-            items(state.pendencias, key = { "pend_${it.id}" }) { os ->
-                ServiceOrderCard(os, onNavigateToDetails)
+            if (state.requerAtencao.isNotEmpty()) {
+                item { SectionHeader("Requer atenção") }
+                items(state.requerAtencao, key = { "req_${it.id}" }) { os ->
+                    ServiceOrderCard(os, onNavigateToDetails)
+                }
+                item { Spacer(modifier = Modifier.height(16.dp)) }
+            }
+
+            if (state.pendencias.isNotEmpty()) {
+                item { SectionHeader("Pendências") }
+                items(state.pendencias, key = { "pend_${it.id}" }) { os ->
+                    ServiceOrderCard(os, onNavigateToDetails)
+                }
             }
         }
     }
@@ -205,6 +308,120 @@ fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.secondary,
         modifier = Modifier.padding(vertical = 8.dp)
     )
+}
+
+@Composable
+fun UnifiedOsCard(
+    card: OperationalOrderCard,
+    onClick: () -> Unit
+) {
+    val timeFormatter = SimpleDateFormat("HH:mm", Locale.forLanguageTag("pt-BR"))
+    val timeText = if (card.startMillis != null) {
+        val startStr = timeFormatter.format(Date(card.startMillis))
+        val endStr = card.endMillis?.let { " - ${timeFormatter.format(Date(it))}" }.orEmpty()
+        "$startStr$endStr"
+    } else {
+        "Sem horário agendado"
+    }
+
+    val (statusLabel, statusColor) = when (card.status) {
+        OperationalStatus.VALIDADO_EXTERNAMENTE -> "Validado no Servidor" to Color(0xFF2E7D32)
+        OperationalStatus.AGUARDANDO_VALIDACAO_EXTERNA -> "Concluído (Aguardando Validação)" to Color(0xFFE65100)
+        OperationalStatus.REQUER_ATENCAO -> "Requer Atenção" to Color(0xFFC62828)
+        OperationalStatus.CONFLITO_PUBLICACAO -> "Conflito de Publicação" to Color(0xFFD32F2F)
+        OperationalStatus.ENVIANDO_PUBLICACAO -> "Enviando..." to MaterialTheme.colorScheme.primary
+        OperationalStatus.AGUARDANDO_CONEXAO -> "Pendente de Envio" to Color(0xFFF57C00)
+        OperationalStatus.FALHA_PUBLICACAO -> "Falha no Envio" to Color(0xFFD32F2F)
+        OperationalStatus.EM_ANDAMENTO -> "Em Andamento" to MaterialTheme.colorScheme.primary
+        OperationalStatus.PENDENTE -> "Agendado" to MaterialTheme.colorScheme.outline
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .testTag(
+                if (card.remoteEventHref != null) "remote_event_${card.remoteEventHref.hashCode()}"
+                else "os_${card.localOrderId}"
+            ),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (!card.externalId.isNullOrBlank()) "OS: ${card.externalId}" else "OS PROVISÓRIA",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = timeText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = card.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                val locationText = listOfNotNull(
+                    card.clientName.takeIf { it.isNotBlank() },
+                    card.unitName?.takeIf { it.isNotBlank() }
+                ).joinToString(" • ")
+
+                if (locationText.isNotBlank()) {
+                    Text(
+                        text = locationText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = statusColor
+                )
+                if (card.officialNumberAssigned) {
+                    Text(
+                        text = "Número oficial atribuído",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.testTag("official_number_assigned_${card.cardId}")
+                    )
+                }
+            }
+
+            if (card.rawColor != null) {
+                Spacer(modifier = Modifier.size(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(eventColorSquared(card.rawColor), CircleShape)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -267,9 +484,9 @@ private fun RemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         )
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Event, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Text(
                         text = event.summary ?: "Evento sem título",
@@ -299,7 +516,7 @@ private fun RemoteEventCard(event: RemoteEvent, onClick: () -> Unit) {
                     }
                 )
             }
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .size(12.dp)
                     .background(eventColorSquared(event.rawEventColor), CircleShape)

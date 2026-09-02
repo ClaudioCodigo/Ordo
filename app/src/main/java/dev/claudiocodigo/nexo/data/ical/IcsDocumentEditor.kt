@@ -78,6 +78,10 @@ object IcsDocumentEditor {
         return outputLines.joinToString(doc.lineEnding)
     }
 
+    private val LOCAL_FORMAT = SimpleDateFormat("yyyyMMdd'T'HHmmss", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("America/Sao_Paulo")
+    }
+
     fun createProvisionalIcs(
         uid: String,
         summary: String,
@@ -87,8 +91,8 @@ object IcsDocumentEditor {
         nowMillis: Long = System.currentTimeMillis()
     ): String {
         val dtStamp = UTC_FORMAT.format(Date(nowMillis))
-        val dtStart = UTC_FORMAT.format(Date(startMillis))
-        val dtEnd = UTC_FORMAT.format(Date(endMillis))
+        val dtStart = LOCAL_FORMAT.format(Date(startMillis))
+        val dtEnd = LOCAL_FORMAT.format(Date(endMillis))
 
         val descFolded = foldContentLine("DESCRIPTION:" + escapeIcsText(description))
         val summaryFolded = foldContentLine("SUMMARY:" + escapeIcsText(summary))
@@ -103,8 +107,8 @@ object IcsDocumentEditor {
             appendLine("CREATED:$dtStamp")
             appendLine("LAST-MODIFIED:$dtStamp")
             appendLine("SEQUENCE:0")
-            appendLine("DTSTART:$dtStart")
-            appendLine("DTEND:$dtEnd")
+            appendLine("DTSTART;TZID=America/Sao_Paulo:$dtStart")
+            appendLine("DTEND;TZID=America/Sao_Paulo:$dtEnd")
             appendLine(summaryFolded)
             appendLine(descFolded)
             appendLine("STATUS:CONFIRMED")

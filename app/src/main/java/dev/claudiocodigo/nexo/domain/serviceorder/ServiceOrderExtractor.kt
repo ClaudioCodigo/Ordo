@@ -1,9 +1,10 @@
 package dev.claudiocodigo.nexo.domain.serviceorder
 
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.UUID
+
+enum class SummaryFieldOrigin { EXPLICIT_LABEL, POSITIONAL, AMBIGUOUS }
 
 data class ExtractedSummary(
     val externalId: String?,
@@ -13,7 +14,10 @@ data class ExtractedSummary(
     val category: String? = null,
     val title: String,
     val rawSummary: String,
-    val segments: List<String> = emptyList()
+    val segments: List<String> = emptyList(),
+    val fieldOrigins: Map<String, SummaryFieldOrigin> = emptyMap(),
+    val confidence: Map<String, Float> = emptyMap(),
+    val ambiguousSegments: List<String> = emptyList()
 )
 
 data class ExtractedDescription(
@@ -24,291 +28,194 @@ data class ExtractedDescription(
     val closureCause: String?,
     val closureSolution: String?,
     val closurePending: String?,
-    val rawDescription: String
+    val rawDescription: String,
+    val conclusionState: ConclusionState = ConclusionState.NAO_DEFINIDO,
+    val isCompleted: Boolean = false,
+    val clientName: String? = null,
+    val unitName: String? = null,
+    val technician: String? = null,
+    val flow: ServiceOrderFlow = ServiceOrderFlow.RESOLUTION,
+    val technicalOpinion: TechnicalOpinion = TechnicalOpinion.CONCLUDED,
+    val observations: String? = null,
+    val updateDraft: String? = null,
+    val previousDescription: String? = null
 )
 
-/**
- * Pure, deterministic extractor for calendar event SUMMARY and DESCRIPTION.
- *
- * Rules:
- * - Never invents data or assumes a fixed segment count;
- * - "????" or "SEM OS" map to null (absent official number);
- * - Unstructured text is preserved entirely as the origin demand;
- * - Structured labels (Demanda:, Atualização, Causa:, Solução:, etc.) are parsed by first unquoted ':'.
- */
+/** Lossless, conservative extraction of remote SUMMARY and DESCRIPTION values. */
 object ServiceOrderExtractor {
-
     private val OS_NUMBER_REGEX = Regex("""(?i)\b(?:OS\s*[:#-]?\s*|N[ºo°]\s*)?([0-9]{3,8})\b""")
+    private val SUMMARY_SPLIT = Regex("""\s+[-|–—]\s+|\s*\|\s*""")
 
     fun extractSummary(rawSummary: String?): ExtractedSummary {
-        val raw = rawSummary.orEmpty().trim()
-        if (raw.isEmpty()) {
-            return ExtractedSummary(
-                externalId = null,
-                clientName = null,
-                unitName = null,
-                technician = null,
-                category = null,
-                title = "Atendimento sem título",
-                rawSummary = raw,
-                segments = emptyList()
-            )
-        }
-
-        // Split by common segment delimiters outside quotes: dash, pipe, en-dash, em-dash
-        val rawSegments = raw.split(Regex("""\s+[-|–—]\s+|\s*\|\s*""")).map { it.trim() }.filter { it.isNotEmpty() }
-
+        val raw = rawSummary.orEmpty()
+        if (raw.trim().isEmpty()) return ExtractedSummary(null, title = "Atendimento sem título", rawSummary = raw)
+        val segments = raw.trim().split(SUMMARY_SPLIT).map(String::trim).filter(String::isNotEmpty)
         var externalId: String? = null
-        var clientName: String? = null
-        var unitName: String? = null
+        var placeholder = false
+        val remaining = mutableListOf<String>()
+        var client: String? = null
+        var location: String? = null
         var technician: String? = null
         var category: String? = null
-        var explicitTitle: String? = null
-        var hasProvisionalPlaceholder = false
+        var title: String? = null
+        val origins = mutableMapOf<String, SummaryFieldOrigin>()
 
-        val unassigned = mutableListOf<String>()
-
-        for (seg in rawSegments) {
-            // Check for explicit label prefix
-            val colonIdx = seg.indexOf(':')
-            if (colonIdx > 0) {
-                val label = seg.substring(0, colonIdx).trim().lowercase()
-                val value = seg.substring(colonIdx + 1).trim()
+        segments.forEach { segment ->
+            val colon = segment.indexOf(':')
+            if (colon > 0) {
+                val label = segment.substring(0, colon).trim().lowercase(Locale.ROOT)
+                val value = segment.substring(colon + 1).trim()
                 when {
                     label in setOf("os", "nº", "no", "num") -> {
-                        if (value.equals("????", ignoreCase = true) || value.equals("SEM OS", ignoreCase = true)) {
-                            hasProvisionalPlaceholder = true
-                        } else {
-                            val match = OS_NUMBER_REGEX.find(value)
-                            externalId = match?.groupValues?.get(1) ?: value
-                        }
-                        continue
+                        if (value == "????" || value.equals("SEM OS", true) || value.equals("SEM_OS", true)) placeholder = true
+                        else externalId = OS_NUMBER_REGEX.find(value)?.groupValues?.get(1) ?: value
+                        return@forEach
                     }
-                    label in setOf("cli", "cliente", "empresa") -> {
-                        clientName = value
-                        continue
-                    }
-                    label in setOf("unid", "unidade", "setor", "local", "sala") -> {
-                        unitName = value
-                        continue
-                    }
-                    label in setOf("tec", "tecnico", "técnico", "resp", "responsavel", "responsável") -> {
-                        technician = value
-                        continue
-                    }
-                    label in setOf("cat", "categoria", "tipo") -> {
-                        category = value
-                        continue
-                    }
-                    label in setOf("tit", "titulo", "título", "serv", "servico", "serviço", "assunto") -> {
-                        explicitTitle = value
-                        continue
-                    }
+                    label in setOf("cli", "cliente", "empresa") -> { client = value; origins["clientName"] = SummaryFieldOrigin.EXPLICIT_LABEL; return@forEach }
+                    label in setOf("unid", "unidade", "setor", "local", "sala") -> { location = value; origins["unitName"] = SummaryFieldOrigin.EXPLICIT_LABEL; return@forEach }
+                    label in setOf("tec", "tecnico", "técnico", "resp", "responsavel", "responsável") -> { technician = value; origins["technician"] = SummaryFieldOrigin.EXPLICIT_LABEL; return@forEach }
+                    label in setOf("cat", "categoria", "tipo") -> { category = value; origins["category"] = SummaryFieldOrigin.EXPLICIT_LABEL; return@forEach }
+                    label in setOf("tit", "titulo", "título", "serv", "servico", "serviço", "assunto") -> { title = value; origins["title"] = SummaryFieldOrigin.EXPLICIT_LABEL; return@forEach }
                 }
             }
-
-            // Check if segment is placeholder for no OS
-            if (seg.equals("????", ignoreCase = true) || seg.equals("SEM OS", ignoreCase = true) || seg.equals("SEM_OS", ignoreCase = true)) {
-                hasProvisionalPlaceholder = true
-                externalId = null
-                continue
-            }
-
-            // Check if standalone segment matches OS number
-            val osMatch = OS_NUMBER_REGEX.find(seg)
-            if (externalId == null && osMatch != null && (seg.startsWith("OS", ignoreCase = true) || seg.startsWith("Nº", ignoreCase = true) || seg.all { it.isDigit() })) {
-                externalId = osMatch.groupValues[1]
-                val cleaned = seg.replace(osMatch.value, "").trim().removePrefix("-").removePrefix(":").trim()
-                if (cleaned.isNotEmpty()) {
-                    unassigned.add(cleaned)
-                }
-                continue
-            }
-
-            unassigned.add(seg)
-        }
-
-        // Positional assignment of unassigned segments
-        when (unassigned.size) {
-            1 -> {
-                if (explicitTitle == null) explicitTitle = unassigned[0]
-            }
-            2 -> {
-                if (clientName == null && (externalId != null || hasProvisionalPlaceholder)) {
-                    clientName = unassigned[0]
-                    if (explicitTitle == null) explicitTitle = unassigned[1]
-                } else if (explicitTitle == null) {
-                    explicitTitle = unassigned.joinToString(" - ")
-                }
-            }
-            3 -> {
-                if (clientName == null) clientName = unassigned[0]
-                if (unitName == null) unitName = unassigned[1]
-                if (explicitTitle == null) explicitTitle = unassigned[2]
-            }
-            else -> {
-                if (unassigned.isNotEmpty()) {
-                    if (clientName == null && unassigned.size >= 2) clientName = unassigned[0]
-                    if (unitName == null && unassigned.size >= 3) unitName = unassigned[1]
-                    if (explicitTitle == null) {
-                        val startIndex = when {
-                            clientName == unassigned.getOrNull(0) && unitName == unassigned.getOrNull(1) -> 2
-                            clientName == unassigned.getOrNull(0) -> 1
-                            else -> 0
-                        }
-                        explicitTitle = unassigned.drop(startIndex).joinToString(" - ").ifBlank { raw }
-                    }
-                }
+            if (segment == "????" || segment.equals("SEM OS", true) || segment.equals("SEM_OS", true)) {
+                placeholder = true
+            } else {
+                val match = OS_NUMBER_REGEX.find(segment)
+                val isNumberSegment = match != null && (segment.startsWith("OS", true) || segment.startsWith("Nº", true) || segment.all(Char::isDigit))
+                if (isNumberSegment && externalId == null) externalId = match!!.groupValues[1] else remaining += segment
             }
         }
 
-        val finalTitle = explicitTitle ?: unassigned.joinToString(" - ").ifBlank { raw }
-
+        // Standard legacy: company - number - location - title; approved new: company - number/???? - technician - category - title - location.
+        when {
+            remaining.size >= 5 && (placeholder || externalId != null) -> {
+                if (client == null) { client = remaining[0]; origins["clientName"] = SummaryFieldOrigin.POSITIONAL }
+                if (technician == null) { technician = remaining[1]; origins["technician"] = SummaryFieldOrigin.POSITIONAL }
+                if (category == null) { category = remaining[2]; origins["category"] = SummaryFieldOrigin.POSITIONAL }
+                if (title == null) { title = remaining[3]; origins["title"] = SummaryFieldOrigin.POSITIONAL }
+                if (location == null) { location = remaining[4]; origins["unitName"] = SummaryFieldOrigin.POSITIONAL }
+            }
+            remaining.size == 4 && (placeholder || externalId != null) -> {
+                if (client == null) { client = remaining[0]; origins["clientName"] = SummaryFieldOrigin.POSITIONAL }
+                if (category == null) { category = remaining[1]; origins["category"] = SummaryFieldOrigin.POSITIONAL }
+                if (title == null) { title = remaining[2]; origins["title"] = SummaryFieldOrigin.POSITIONAL }
+                if (location == null) { location = remaining[3]; origins["unitName"] = SummaryFieldOrigin.POSITIONAL }
+            }
+            remaining.size == 3 && (placeholder || externalId != null) -> {
+                if (client == null) { client = remaining[0]; origins["clientName"] = SummaryFieldOrigin.POSITIONAL }
+                if (location == null) { location = remaining[1]; origins["unitName"] = SummaryFieldOrigin.POSITIONAL }
+                if (title == null) { title = remaining[2]; origins["title"] = SummaryFieldOrigin.POSITIONAL }
+            }
+            remaining.size == 2 && (placeholder || externalId != null) -> {
+                if (client == null) { client = remaining[0]; origins["clientName"] = SummaryFieldOrigin.POSITIONAL }
+                if (title == null) { title = remaining[1]; origins["title"] = SummaryFieldOrigin.POSITIONAL }
+            }
+            remaining.isNotEmpty() -> {
+                if (title == null) title = remaining.last()
+            }
+        }
+        val assigned = setOfNotNull(client, location, technician, category, title)
+        val ambiguous = remaining.filterNot { it in assigned }
+        val confidence = origins.mapValues { (_, origin) -> if (origin == SummaryFieldOrigin.EXPLICIT_LABEL) 1f else 0.6f }
         return ExtractedSummary(
             externalId = externalId,
-            clientName = clientName,
-            unitName = unitName,
+            clientName = client,
+            unitName = location,
             technician = technician,
             category = category,
-            title = finalTitle,
+            title = title?.ifBlank { "Atendimento sem título" } ?: "Atendimento sem título",
             rawSummary = raw,
-            segments = rawSegments
+            segments = segments,
+            fieldOrigins = origins,
+            confidence = confidence,
+            ambiguousSegments = ambiguous
         )
     }
 
     fun extractDescription(rawDescription: String?): ExtractedDescription {
-        val raw = rawDescription.orEmpty().trim()
-        if (raw.isEmpty()) {
-            return ExtractedDescription(
-                externalId = null,
-                preset = ServiceOrderPreset.DIAGNOSTICO_CORRECAO,
-                originalDemand = "",
-                updates = emptyList(),
-                closureCause = null,
-                closureSolution = null,
-                closurePending = null,
-                rawDescription = raw
-            )
+        val raw = rawDescription.orEmpty()
+        if (raw.trim().isEmpty()) return ExtractedDescription(null, ServiceOrderPreset.DIAGNOSTICO_CORRECAO, "", emptyList(), null, null, null, raw)
+        val historyMarker = when {
+            raw.contains("----- Histórico Remoto Preservado -----") -> "----- Histórico Remoto Preservado -----"
+            raw.contains("--- Histórico anterior ---") -> "--- Histórico anterior ---"
+            else -> null
         }
-
-        val lines = raw.lines().map { it.trim() }
-        var currentSection: String? = null
-        val demandBuffer = StringBuilder()
-        val causeBuffer = StringBuilder()
-        val solutionBuffer = StringBuilder()
-        val pendingBuffer = StringBuilder()
-        val updates = mutableListOf<ServiceOrderUpdate>()
-        var updateSeq = 1
-        var isCompleted = false
+        val markerIndex = historyMarker?.let { raw.indexOf(it) } ?: -1
+        val currentText = if (markerIndex >= 0 && historyMarker != null) raw.substring(0, markerIndex) else raw
+        val history = if (markerIndex >= 0 && historyMarker != null) raw.substring(markerIndex + historyMarker.length).trimStart('\r', '\n') else null
+        val lines = currentText.lines().map(String::trim)
+        var section: String? = null
         var externalId: String? = null
+        var client: String? = null
+        var location: String? = null
+        var technician: String? = null
+        var flow = ServiceOrderFlow.RESOLUTION
+        var state = ConclusionState.NAO_DEFINIDO
+        var opinion = TechnicalOpinion.CONCLUDED
+        val demand = StringBuilder()
+        val cause = StringBuilder()
+        val solution = StringBuilder()
+        val pending = StringBuilder()
+        val observations = StringBuilder()
+        val update = StringBuilder()
+        val updates = mutableListOf<ServiceOrderUpdate>()
+        var updateSequence = 1
+        var sawStructuredSection = false
 
         for (line in lines) {
             if (line.isEmpty()) continue
-
-            val colonIdx = line.indexOf(':')
-            if (colonIdx > 0) {
-                val label = line.substring(0, colonIdx).trim().lowercase()
-                val content = line.substring(colonIdx + 1).trim()
-
+            val colon = line.indexOf(':')
+            if (colon > 0) {
+                val label = line.substring(0, colon).trim().lowercase(Locale.ROOT)
+                val content = line.substring(colon + 1).trim()
                 when {
-                    label.startsWith("os") -> {
-                        currentSection = "header"
-                        if (content.isNotEmpty() && !content.equals("SEM OS", ignoreCase = true) && !content.equals("????", ignoreCase = true)) {
-                            val match = OS_NUMBER_REGEX.find(content)
-                            externalId = match?.groupValues?.get(1) ?: content
-                        }
-                        continue
+                    label == "os" || label.startsWith("nº da os") -> { externalId = OS_NUMBER_REGEX.find(content)?.groupValues?.get(1); section = "header"; continue }
+                    label.startsWith("cliente") || label == "empresa" -> {
+                        val parts = content.split(" - ", limit = 2); client = parts[0].trim(); if (parts.size > 1) location = parts[1].trim(); section = "header"; continue
                     }
-                    label.startsWith("cliente") || label.startsWith("técnico") ||
-                    label.startsWith("tecnico") || label.startsWith("categoria") || label.startsWith("unidade") ||
-                    label.startsWith("data") -> {
-                        currentSection = "header"
-                        continue
+                    label.startsWith("local") || label.startsWith("unidade") -> { location = content; section = "header"; continue }
+                    label.startsWith("técnico") || label.startsWith("tecnico") -> { technician = content; section = "header"; continue }
+                    label.startsWith("categoria") || label.startsWith("data") -> { section = "header"; continue }
+                    label.startsWith("parecer técnico") || label.startsWith("parecer tecnico") -> { opinion = if (content.contains("não", true) || content.contains("nao", true)) TechnicalOpinion.NOT_CONCLUDED else TechnicalOpinion.CONCLUDED; state = if (opinion == TechnicalOpinion.NOT_CONCLUDED) ConclusionState.NAO_CONCLUIDO else ConclusionState.CONCLUIDO; section = "header"; continue }
+                    label.startsWith("estado") -> {
+                        state = when { content.contains("não conclu", true) || content.contains("nao conclu", true) -> ConclusionState.NAO_CONCLUIDO; content.contains("pendên", true) || content.contains("pendenc", true) -> ConclusionState.CONCLUIDO_COM_PENDENCIAS; content.contains("conclu", true) -> ConclusionState.CONCLUIDO; else -> ConclusionState.NAO_DEFINIDO }
+                        opinion = if (state == ConclusionState.NAO_CONCLUIDO) TechnicalOpinion.NOT_CONCLUDED else TechnicalOpinion.CONCLUDED; section = "header"; continue
                     }
-                    label.startsWith("demanda") || label.startsWith("solicitação") || label.startsWith("problema") -> {
-                        currentSection = "demand"
-                        if (content.isNotEmpty()) demandBuffer.appendLine(content)
-                        continue
-                    }
-                    label.startsWith("estado") && content.contains("conclu", ignoreCase = true) -> {
-                        isCompleted = true
-                        continue
-                    }
-                    label.startsWith("causa") -> {
-                        currentSection = "cause"
-                        if (content.isNotEmpty()) causeBuffer.appendLine(content)
-                        continue
-                    }
-                    label.startsWith("solução") || label.startsWith("solucao") || label.startsWith("resultado") || label.startsWith("ação") -> {
-                        currentSection = "solution"
-                        if (content.isNotEmpty()) solutionBuffer.appendLine(content)
-                        continue
-                    }
-                    label.startsWith("pendência") || label.startsWith("pendencia") || label.startsWith("pendências") -> {
-                        currentSection = "pending"
-                        if (content.isNotEmpty()) pendingBuffer.appendLine(content)
-                        continue
-                    }
-                    label.startsWith("atualização") || label.startsWith("atualizacao") || label.startsWith("update") -> {
-                        currentSection = "update"
-                        val updateDate = parseDateFromHeader(label) ?: System.currentTimeMillis()
-                        updates.add(
-                            ServiceOrderUpdate(
-                                id = UUID.randomUUID(),
-                                sequenceOrder = updateSeq++,
-                                text = content,
-                                executionDate = updateDate
-                            )
-                        )
-                        continue
-                    }
+                    label.startsWith("demanda") || label.startsWith("problema") -> { sawStructuredSection = true; section = "demand"; if (content.isNotEmpty()) demand.appendLine(content); continue }
+                    label.startsWith("solicitação") || label.startsWith("solicitacao") -> { sawStructuredSection = true; flow = ServiceOrderFlow.REQUEST; section = "demand"; if (content.isNotEmpty()) demand.appendLine(content); continue }
+                    label.startsWith("causa") -> { sawStructuredSection = true; flow = ServiceOrderFlow.RESOLUTION; section = "cause"; if (content.isNotEmpty()) cause.appendLine(content); continue }
+                    label.startsWith("solução") || label.startsWith("solucao") || label.startsWith("ação") || label.startsWith("acao") -> { sawStructuredSection = true; section = "solution"; if (content.isNotEmpty()) solution.appendLine(content); continue }
+                    label.startsWith("pendência") || label.startsWith("pendencia") -> { sawStructuredSection = true; section = "pending"; if (content.isNotEmpty()) pending.appendLine(content); continue }
+                    label.startsWith("observação") || label.startsWith("observacao") -> { sawStructuredSection = true; section = "observations"; if (content.isNotEmpty()) observations.appendLine(content); continue }
+                    label.startsWith("atualização") || label.startsWith("atualizacao") || label == "update" -> { sawStructuredSection = true; flow = ServiceOrderFlow.UPDATE; section = "update"; if (content.isNotEmpty()) update.appendLine(content); updates += ServiceOrderUpdate(UUID.randomUUID(), updateSequence++, content, System.currentTimeMillis()); continue }
                 }
             }
-
-            // Continuation of current section or raw demand
-            when (currentSection) {
-                "header" -> { /* skip header continuations */ }
-                "demand" -> demandBuffer.appendLine(line)
-                "cause" -> causeBuffer.appendLine(line)
-                "solution" -> solutionBuffer.appendLine(line)
-                "pending" -> pendingBuffer.appendLine(line)
-                "update" -> {
-                    if (updates.isNotEmpty()) {
-                        val last = updates.removeAt(updates.lastIndex)
-                        updates.add(last.copy(text = "${last.text}\n$line"))
-                    }
-                }
-                else -> demandBuffer.appendLine(line)
+            when (section) {
+                "demand" -> demand.appendLine(line)
+                "cause" -> cause.appendLine(line)
+                "solution" -> solution.appendLine(line)
+                "pending" -> pending.appendLine(line)
+                "observations" -> observations.appendLine(line)
+                "update" -> { if (update.isNotEmpty()) update.appendLine(line); if (updates.isNotEmpty()) updates[updates.lastIndex] = updates.last().copy(text = update.toString().trim()) }
             }
         }
-
-        val demand = demandBuffer.toString().trim()
-        val cause = causeBuffer.toString().trim().takeIf { it.isNotEmpty() }
-        val solution = solutionBuffer.toString().trim().takeIf { it.isNotEmpty() }
-        val pending = pendingBuffer.toString().trim().takeIf { it.isNotEmpty() }
-
-        val preset = if (cause != null) {
-            ServiceOrderPreset.DIAGNOSTICO_CORRECAO
-        } else {
-            ServiceOrderPreset.SERVICO_SOLICITADO
-        }
-
+        val causeText = cause.toString().trim().takeIf { it.isNotEmpty() && !it.equals("N/A", true) }
+        val solutionText = solution.toString().trim().takeIf(String::isNotEmpty)
+        val pendingText = pending.toString().trim().takeIf(String::isNotEmpty)
+        if (flow == ServiceOrderFlow.RESOLUTION && causeText == null && solutionText == null && updates.isNotEmpty()) flow = ServiceOrderFlow.UPDATE
+        if (!sawStructuredSection && updates.isEmpty()) flow = ServiceOrderFlow.REQUEST
+        val preset = if (flow == ServiceOrderFlow.REQUEST) ServiceOrderPreset.SERVICO_SOLICITADO else ServiceOrderPreset.DIAGNOSTICO_CORRECAO
         return ExtractedDescription(
-            externalId = externalId,
-            preset = preset,
-            originalDemand = demand.ifBlank { raw },
-            updates = updates,
-            closureCause = cause,
-            closureSolution = solution,
-            closurePending = pending,
-            rawDescription = raw
+            externalId, preset, demand.toString().trim().ifBlank { currentText.trim() }, updates,
+            causeText, solutionText, pendingText, raw, state, state.isCompletion,
+            client, location, technician, flow, opinion, observations.toString().trim().takeIf(String::isNotEmpty), update.toString().trim().takeIf(String::isNotEmpty), history
         )
     }
 
-    private fun parseDateFromHeader(label: String): Long? {
-        val dateMatch = Regex("""\b(\d{1,2}/\d{1,2}/\d{2,4})\b""").find(label) ?: return null
-        return runCatching {
-            SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("pt-BR")).parse(dateMatch.value)?.time
-        }.getOrNull()
-    }
+    @Suppress("unused")
+    private fun parseDateFromHeader(label: String): Long? = runCatching {
+        val value = Regex("""\b\d{1,2}/\d{1,2}/\d{2,4}\b""").find(label)?.value ?: return null
+        SimpleDateFormat("dd/MM/yyyy", Locale.forLanguageTag("pt-BR")).parse(value)?.time
+    }.getOrNull()
 }

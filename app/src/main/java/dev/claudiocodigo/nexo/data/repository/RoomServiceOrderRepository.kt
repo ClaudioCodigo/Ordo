@@ -49,6 +49,10 @@ class RoomServiceOrderRepository @Inject constructor(
         storeDao.saveStructuredOrder(order)
     }
 
+    override suspend fun deleteStructuredOrder(id: UUID) {
+        storeDao.deleteStructuredOrder(id)
+    }
+
     override suspend fun createOrGetAttendance(
         key: RemoteOccurrenceKey,
         initialPreset: ServiceOrderPreset,

@@ -41,9 +41,9 @@ import dev.claudiocodigo.nexo.ui.screens.conta.QrScanScreen
 import dev.claudiocodigo.nexo.ui.screens.descoberta.DescobertaAgendaScreen
 import dev.claudiocodigo.nexo.ui.screens.detalhes.DetalhesScreen
 import dev.claudiocodigo.nexo.ui.screens.oseditor.ServiceOrderEditorScreen
+import dev.claudiocodigo.nexo.ui.screens.rascunhos.RascunhosScreen
 import dev.claudiocodigo.nexo.ui.screens.preview.PublicationPreviewScreen
 import dev.claudiocodigo.nexo.ui.screens.remoto.RemoteEventDetailScreen
-import dev.claudiocodigo.nexo.ui.screens.resumo.SummaryExtractionScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.DiagnosticoBateriaScreen
 import dev.claudiocodigo.nexo.ui.screens.ferramentas.FerramentasScreen
 import dev.claudiocodigo.nexo.ui.screens.hoje.HojeScreen
@@ -80,7 +80,6 @@ fun MainScreen() {
     val hideBottomBar = currentRoute is Route.DetalhesOS ||
                         currentRoute is Route.NovaOS ||
                         currentRoute is Route.EditorOS ||
-                        currentRoute is Route.ExtracaoResumo ||
                         currentRoute is Route.PreviewPublicacao ||
                         currentRoute is Route.RevisaoConflito ||
                         currentRoute is Route.CentralSincronizacao ||
@@ -89,6 +88,7 @@ fun MainScreen() {
                         currentRoute is Route.ContaNextcloud ||
                         currentRoute is Route.QrScanner ||
                         currentRoute is Route.DescobertaAgenda ||
+                        currentRoute is Route.Rascunhos ||
                         currentRoute is Route.EventoRemoto
 
     var pendingQrPayload by remember { mutableStateOf<String?>(null) }
@@ -119,6 +119,9 @@ fun MainScreen() {
                             onNavigateToDetails = { id -> currentBackStack.add(Route.EditorOS(id)) },
                             onNavigateToNewOS = {
                                 currentBackStack.add(Route.EditorOS(UUID.randomUUID().toString()))
+                            },
+                            onNavigateToDrafts = {
+                                currentBackStack.add(Route.Rascunhos)
                             },
                             onNavigateToRemoteEvent = { accountId, calHref, href ->
                                 currentBackStack.add(Route.EventoRemoto(accountId, calHref, href))
@@ -179,16 +182,6 @@ fun MainScreen() {
                             onNavigateToPreview = { id ->
                                 currentBackStack.add(Route.PreviewPublicacao(id.toString()))
                             },
-                            onNavigateToSummaryExtraction = { id ->
-                                currentBackStack.add(Route.ExtracaoResumo(id.toString()))
-                            }
-                        )
-                    }
-                    is Route.ExtracaoResumo -> NavEntry(key) {
-                        SummaryExtractionScreen(
-                            orderId = UUID.fromString(key.orderId),
-                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
-                            onApplied = { currentBackStack.removeAt(currentBackStack.size - 1) }
                         )
                     }
                     is Route.PreviewPublicacao -> NavEntry(key) {
@@ -196,9 +189,7 @@ fun MainScreen() {
                             orderId = UUID.fromString(key.orderId),
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
                             onConfirmed = {
-                                if (currentBackStack.size > 1) {
-                                    currentBackStack.removeAt(currentBackStack.size - 1)
-                                }
+                                while (currentBackStack.size > 1) currentBackStack.removeAt(currentBackStack.size - 1)
                                 currentBackStack.add(Route.CentralSincronizacao)
                             }
                         )
@@ -247,6 +238,14 @@ fun MainScreen() {
                         DescobertaAgendaScreen(
                             onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
                             onSelected = { currentBackStack.removeAt(currentBackStack.size - 1) }
+                        )
+                    }
+                    is Route.Rascunhos -> NavEntry(key) {
+                        RascunhosScreen(
+                            onBack = { currentBackStack.removeAt(currentBackStack.size - 1) },
+                            onOpenDraft = { orderId ->
+                                currentBackStack.add(Route.EditorOS(orderId))
+                            }
                         )
                     }
                     is Route.EventoRemoto -> NavEntry(key) {

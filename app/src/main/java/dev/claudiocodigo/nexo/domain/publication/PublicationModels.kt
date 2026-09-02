@@ -23,7 +23,8 @@ data class ConfirmedPreviewSnapshot(
     val baseEtag: String?,
     val rawIcsPayload: String,
     val targetHref: String,
-    val uid: String
+    val uid: String,
+    val confirmedRevision: Long = 0L
 )
 
 data class OutboxOperation(
@@ -37,7 +38,8 @@ data class OutboxOperation(
     val retryCount: Int = 0,
     val leaseExpiresAt: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val confirmedRevision: Long = 0L
 )
 
 sealed interface DrainOutcome {

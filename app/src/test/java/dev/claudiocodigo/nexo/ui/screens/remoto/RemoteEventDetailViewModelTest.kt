@@ -63,7 +63,7 @@ class RemoteEventDetailViewModelTest {
     }
 
     @Test
-    fun `official number added remotely requires review without overwriting local value`() = runTest(dispatcher) {
+    fun `official number added remotely auto reconciles when local had placeholder or none`() = runTest(dispatcher) {
         val key = RemoteOccurrenceKey("acct", "/cal/", "/cal/event.ics")
         val existing = StructuredServiceOrder(
             id = UUID.randomUUID(),
@@ -84,13 +84,44 @@ class RemoteEventDetailViewModelTest {
         viewModel.load("acct", "/cal/", "/cal/event.ics")
         advanceUntilIdle()
 
+        var requiresReview = true
+        viewModel.startAttendance { _, review -> requiresReview = review }
+        advanceUntilIdle()
+
+        assertFalse(requiresReview)
+        assertEquals("15455", orders.orders[existing.id]?.externalId)
+        assertTrue(orders.orders[existing.id]?.officialNumberJustAssigned == true)
+        assertEquals("\"e2\"", orders.orders[existing.id]?.baseSnapshot?.etag)
+    }
+
+    @Test
+    fun `divergent valid official numbers require review`() = runTest(dispatcher) {
+        val key = RemoteOccurrenceKey("acct", "/cal/", "/cal/event.ics")
+        val existing = StructuredServiceOrder(
+            id = UUID.randomUUID(),
+            occurrenceKey = key,
+            externalId = "15400",
+            title = "PIER - CLAUDIO - REDE - TESTE",
+            clientName = "PIER",
+            unitName = "Unidade",
+            baseSnapshot = RemoteBaseSnapshot(
+                etag = "\"e1\"",
+                rawIcs = "old",
+                rawSummary = "PIER - 15400 - CLAUDIO - REDE - TESTE",
+                rawDescription = "Demanda"
+            )
+        )
+        orders.orders[existing.id] = existing
+        calendar.event = remoteEvent(summary = "PIER - 15455 - CLAUDIO - REDE - TESTE", etag = "\"e2\"")
+        viewModel.load("acct", "/cal/", "/cal/event.ics")
+        advanceUntilIdle()
+
         var requiresReview = false
         viewModel.startAttendance { _, review -> requiresReview = review }
         advanceUntilIdle()
 
         assertTrue(requiresReview)
-        assertNull(orders.orders[existing.id]?.externalId)
-        assertEquals("\"e1\"", orders.orders[existing.id]?.baseSnapshot?.etag)
+        assertEquals("15400", orders.orders[existing.id]?.externalId)
     }
 
     @Test

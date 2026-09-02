@@ -2,11 +2,17 @@ package dev.claudiocodigo.nexo.domain.serviceorder
 
 enum class ConflictField {
     EXTERNAL_ID,
+    COMPANY,
+    LOCATION,
+    TECHNICIAN,
+    CATEGORY,
     TITLE,
     ORIGINAL_DEMAND,
     CAUSE,
     SOLUTION,
-    PENDING
+    PENDING,
+    OBSERVATIONS,
+    CONTENT
 }
 
 enum class FieldChoice {
@@ -45,7 +51,11 @@ object ServiceOrderDiff {
         remoteTitle: String,
         remoteCause: String? = null,
         remoteSolution: String? = null,
-        remotePending: String? = null
+        remotePending: String? = null,
+        remoteClientName: String? = null,
+        remoteUnitName: String? = null,
+        remoteTechnician: String? = null,
+        remoteCategory: String? = null
     ): List<FieldDifference> = analyzeRemoteChange(
         localOrder = localOrder,
         remoteExternalId = remoteExternalId,
@@ -56,7 +66,11 @@ object ServiceOrderDiff {
         remotePending = remotePending,
         inspectRawText = false,
         remoteRawSummary = null,
-        remoteRawDescription = null
+        remoteRawDescription = null,
+        remoteClientName = remoteClientName,
+        remoteUnitName = remoteUnitName,
+        remoteTechnician = remoteTechnician,
+        remoteCategory = remoteCategory
     ).differences
 
     fun analyzeRemoteChange(
@@ -67,8 +81,12 @@ object ServiceOrderDiff {
         remoteCause: String? = null,
         remoteSolution: String? = null,
         remotePending: String? = null,
-        remoteRawSummary: String?,
-        remoteRawDescription: String?
+        remoteRawSummary: String? = null,
+        remoteRawDescription: String? = null,
+        remoteClientName: String? = null,
+        remoteUnitName: String? = null,
+        remoteTechnician: String? = null,
+        remoteCategory: String? = null
     ): RemoteChangeAnalysis = analyzeRemoteChange(
         localOrder = localOrder,
         remoteExternalId = remoteExternalId,
@@ -79,7 +97,11 @@ object ServiceOrderDiff {
         remotePending = remotePending,
         inspectRawText = true,
         remoteRawSummary = remoteRawSummary,
-        remoteRawDescription = remoteRawDescription
+        remoteRawDescription = remoteRawDescription,
+        remoteClientName = remoteClientName,
+        remoteUnitName = remoteUnitName,
+        remoteTechnician = remoteTechnician,
+        remoteCategory = remoteCategory
     )
 
     private fun analyzeRemoteChange(
@@ -92,24 +114,42 @@ object ServiceOrderDiff {
         remotePending: String?,
         inspectRawText: Boolean,
         remoteRawSummary: String?,
-        remoteRawDescription: String?
+        remoteRawDescription: String?,
+        remoteClientName: String?,
+        remoteUnitName: String?,
+        remoteTechnician: String?,
+        remoteCategory: String?
     ): RemoteChangeAnalysis {
         val diffs = mutableListOf<FieldDifference>()
         val baseSummary = ServiceOrderExtractor.extractSummary(localOrder.baseSnapshot?.rawSummary)
         val baseDescription = ServiceOrderExtractor.extractDescription(localOrder.baseSnapshot?.rawDescription)
         val baseExternalId = baseSummary.externalId ?: baseDescription.externalId
+        val remoteSummary = ServiceOrderExtractor.extractSummary(remoteRawSummary)
+        val remoteDescription = ServiceOrderExtractor.extractDescription(remoteRawDescription)
+        val effectiveExternalId = remoteExternalId ?: remoteSummary.externalId ?: remoteDescription.externalId
+        val effectiveClient = remoteClientName ?: remoteSummary.clientName
+        val effectiveUnit = remoteUnitName ?: remoteSummary.unitName
+        val effectiveTechnician = remoteTechnician ?: remoteSummary.technician ?: remoteDescriptionTechnician(remoteRawDescription)
+        val effectiveCategory = remoteCategory ?: remoteSummary.category
 
-        val externalIdChangedRemotely = normalized(baseExternalId) != normalized(remoteExternalId)
-        val legacyMissingOfficialId = normalized(localOrder.externalId) == null &&
-            normalized(remoteExternalId) != null
+        val externalIdChangedRemotely = normalized(baseExternalId) != normalized(effectiveExternalId)
+        val localNumberIsProvisional = normalized(localOrder.externalId).let {
+            it == null || it.equals("????", true) || it.equals("SEM OS", true)
+        }
+        val legacyMissingOfficialId = localNumberIsProvisional && normalized(effectiveExternalId) != null
         val titleChangedRemotely = normalized(baseSummary.title) != normalized(remoteTitle)
         val demandChangedRemotely = normalized(baseDescription.originalDemand) != normalized(remoteDemand)
         val causeChangedRemotely = normalized(baseDescription.closureCause) != normalized(remoteCause)
         val solutionChangedRemotely = normalized(baseDescription.closureSolution) != normalized(remoteSolution)
         val pendingChangedRemotely = normalized(baseDescription.closurePending) != normalized(remotePending)
+        val observationsChangedRemotely = normalized(baseDescription.observations) != normalized(remoteDescription.observations)
+        val companyChangedRemotely = normalized(baseSummary.clientName) != normalized(effectiveClient)
+        val locationChangedRemotely = normalized(baseSummary.unitName) != normalized(effectiveUnit)
+        val technicianChangedRemotely = normalized(baseSummary.technician) != normalized(effectiveTechnician)
+        val categoryChangedRemotely = normalized(baseSummary.category) != normalized(effectiveCategory)
 
         if ((externalIdChangedRemotely || legacyMissingOfficialId) &&
-            normalized(localOrder.externalId) != normalized(remoteExternalId)
+            normalized(localOrder.externalId) != normalized(effectiveExternalId)
         ) {
             diffs.add(
                 FieldDifference(
@@ -117,7 +157,7 @@ object ServiceOrderDiff {
                     label = "Número oficial da OS",
                     baseValue = baseExternalId,
                     localValue = localOrder.externalId,
-                    remoteValue = remoteExternalId
+                    remoteValue = effectiveExternalId
                 )
             )
         }
@@ -133,6 +173,15 @@ object ServiceOrderDiff {
                 )
             )
         }
+
+        fun add(field: ConflictField, label: String, base: String?, local: String?, remote: String?, changed: Boolean) {
+            if (changed && normalized(local) != normalized(remote)) diffs += FieldDifference(field, label, base, local, remote)
+        }
+        add(ConflictField.COMPANY, "Empresa", baseSummary.clientName, localOrder.clientName, effectiveClient, companyChangedRemotely)
+        add(ConflictField.LOCATION, "Local", baseSummary.unitName, localOrder.unitName, effectiveUnit, locationChangedRemotely)
+        add(ConflictField.TECHNICIAN, "Técnico", baseSummary.technician, localOrder.technician, effectiveTechnician, technicianChangedRemotely)
+        add(ConflictField.CATEGORY, "Categoria", baseSummary.category, localOrder.category, effectiveCategory, categoryChangedRemotely)
+        add(ConflictField.OBSERVATIONS, "Observações", baseDescription.observations, localOrder.observations, remoteDescription.observations, observationsChangedRemotely)
 
         if (demandChangedRemotely && normalized(localOrder.originalDemand) != normalized(remoteDemand)) {
             diffs.add(
@@ -189,17 +238,20 @@ object ServiceOrderDiff {
         }
 
         val hasUnmappedRemoteTextChange = if (inspectRawText) {
-            val remoteSummary = ServiceOrderExtractor.extractSummary(remoteRawSummary)
-            val remoteDescription = ServiceOrderExtractor.extractDescription(remoteRawDescription)
             val summaryTextChanged = canonicalText(localOrder.baseSnapshot?.rawSummary) != canonicalText(remoteRawSummary)
             val descriptionTextChanged = canonicalText(localOrder.baseSnapshot?.rawDescription) != canonicalText(remoteRawDescription)
             val summaryChangeRepresented = normalized(baseSummary.externalId) != normalized(remoteSummary.externalId) ||
+                normalized(baseSummary.clientName) != normalized(remoteSummary.clientName) ||
+                normalized(baseSummary.unitName) != normalized(remoteSummary.unitName) ||
+                normalized(baseSummary.technician) != normalized(remoteSummary.technician) ||
+                normalized(baseSummary.category) != normalized(remoteSummary.category) ||
                 normalized(baseSummary.title) != normalized(remoteSummary.title)
             val descriptionChangeRepresented = normalized(baseDescription.externalId) != normalized(remoteDescription.externalId) ||
                 normalized(baseDescription.originalDemand) != normalized(remoteDescription.originalDemand) ||
                 normalized(baseDescription.closureCause) != normalized(remoteDescription.closureCause) ||
                 normalized(baseDescription.closureSolution) != normalized(remoteDescription.closureSolution) ||
-                normalized(baseDescription.closurePending) != normalized(remoteDescription.closurePending)
+                normalized(baseDescription.closurePending) != normalized(remoteDescription.closurePending) ||
+                normalized(baseDescription.observations) != normalized(remoteDescription.observations)
             val unsupportedDescriptionChange = baseDescription.preset != remoteDescription.preset ||
                 baseDescription.updates.map { normalized(it.text) } != remoteDescription.updates.map { normalized(it.text) }
 
@@ -236,26 +288,40 @@ object ServiceOrderDiff {
         newEtag: String?,
         remoteRawSummary: String? = null,
         remoteRawDescription: String? = null,
-        remoteRawIcs: String? = null
+        remoteRawIcs: String? = null,
+        remoteClientName: String? = null,
+        remoteUnitName: String? = null,
+        remoteTechnician: String? = null,
+        remoteCategory: String? = null
     ): StructuredServiceOrder {
         var updated = localOrder
+        val remoteSummary = ServiceOrderExtractor.extractSummary(remoteRawSummary)
+        val remoteDescriptionInfo = ServiceOrderExtractor.extractDescription(remoteRawDescription)
+        val effectiveExternalId = remoteExternalId ?: remoteSummary.externalId ?: remoteDescriptionInfo.externalId
 
         choices.forEach { (field, choice) ->
             if (choice == FieldChoice.USE_REMOTE) {
                 updated = when (field) {
-                    ConflictField.EXTERNAL_ID -> updated.copy(externalId = remoteExternalId)
+                    ConflictField.EXTERNAL_ID -> updated.copy(externalId = effectiveExternalId)
+                    ConflictField.COMPANY -> updated.copy(clientName = remoteClientName ?: remoteSummary.clientName ?: updated.clientName)
+                    ConflictField.LOCATION -> updated.copy(unitName = remoteUnitName ?: remoteSummary.unitName ?: updated.unitName)
+                    ConflictField.TECHNICIAN -> updated.copy(technician = remoteTechnician ?: remoteSummary.technician ?: remoteDescriptionInfo.technician)
+                    ConflictField.CATEGORY -> updated.copy(category = remoteCategory ?: remoteSummary.category ?: updated.category)
                     ConflictField.TITLE -> updated.copy(title = remoteTitle)
                     ConflictField.ORIGINAL_DEMAND -> updated.copy(originalDemand = remoteDemand)
                     ConflictField.CAUSE -> updated.copy(closureCause = remoteCause)
                     ConflictField.SOLUTION -> updated.copy(closureSolution = remoteSolution)
                     ConflictField.PENDING -> updated.copy(closurePending = remotePending)
+                    ConflictField.OBSERVATIONS -> updated.copy(observations = remoteDescriptionInfo.observations)
+                    ConflictField.CONTENT -> updated
                 }
             }
         }
 
-        val updatedSnapshot = updated.baseSnapshot?.copy(
-            etag = newEtag ?: updated.baseSnapshot.etag,
-            rawIcs = remoteRawIcs ?: updated.baseSnapshot.rawIcs,
+        val existingSnapshot = updated.baseSnapshot
+        val updatedSnapshot = existingSnapshot?.copy(
+            etag = newEtag ?: existingSnapshot.etag,
+            rawIcs = remoteRawIcs ?: existingSnapshot.rawIcs,
             rawSummary = remoteRawSummary ?: remoteTitle,
             rawDescription = remoteRawDescription ?: remoteDemand,
             capturedAt = System.currentTimeMillis()
@@ -266,4 +332,10 @@ object ServiceOrderDiff {
             publicationState = PublicationState.LOCAL_DRAFT
         )
     }
+
+    fun isOnlyOfficialNumberChange(differences: List<FieldDifference>): Boolean =
+        differences.isNotEmpty() && differences.all { it.field == ConflictField.EXTERNAL_ID }
+
+    private fun remoteDescriptionTechnician(raw: String?): String? =
+        ServiceOrderExtractor.extractDescription(raw).technician
 }

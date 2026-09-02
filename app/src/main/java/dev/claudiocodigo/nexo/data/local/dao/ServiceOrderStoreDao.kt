@@ -15,6 +15,7 @@ import dev.claudiocodigo.nexo.data.local.entity.ServiceOrderUpdateEntity
 import dev.claudiocodigo.nexo.data.local.entity.ServiceOrderVersionEntity
 import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
 import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
+import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderFlow
 import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
@@ -72,6 +73,9 @@ interface ServiceOrderStoreDao {
     @Upsert
     suspend fun upsertSnapshot(snapshot: ServiceOrderSnapshotEntity)
 
+    @Query("DELETE FROM service_order_snapshots WHERE orderId = :orderId")
+    suspend fun deleteSnapshotByOrderId(orderId: UUID)
+
     // --- Updates ---
 
     @Query("SELECT * FROM service_order_updates WHERE orderId = :orderId ORDER BY sequenceOrder ASC, executionDate ASC, createdAt ASC")
@@ -99,8 +103,14 @@ interface ServiceOrderStoreDao {
     @Query("SELECT * FROM service_order_versions WHERE orderId = :orderId ORDER BY versionNumber ASC")
     suspend fun getVersionsByOrderId(orderId: UUID): List<ServiceOrderVersionEntity>
 
+    @Query("UPDATE service_order_versions SET publishedEtag = :etag, publishedAt = :publishedAt WHERE orderId = :orderId AND confirmedRevision = :confirmedRevision AND publishedEtag IS NULL")
+    suspend fun markVersionPublished(orderId: UUID, confirmedRevision: Long, etag: String?, publishedAt: Long): Int
+
     @Upsert
     suspend fun upsertVersion(version: ServiceOrderVersionEntity)
+
+    @Query("DELETE FROM service_order_versions WHERE orderId = :orderId")
+    suspend fun deleteVersionsByOrderId(orderId: UUID)
 
     // --- Outbox ---
 
@@ -192,6 +202,7 @@ interface ServiceOrderStoreDao {
             clientName = clientName,
             unitName = unitName,
             preset = initialPreset,
+            flow = if (initialPreset == ServiceOrderPreset.SERVICO_SOLICITADO) ServiceOrderFlow.REQUEST else ServiceOrderFlow.RESOLUTION,
             originalDemand = rawDescription.orEmpty(),
             scheduledStart = startMillis,
             scheduledEnd = endMillis,
@@ -210,5 +221,15 @@ interface ServiceOrderStoreDao {
 
         saveStructuredOrder(structured)
         return structured
+    }
+
+    @Transaction
+    suspend fun deleteStructuredOrder(id: UUID) {
+        deleteOrderById(id)
+        deleteLinkByOrderId(id)
+        deleteSnapshotByOrderId(id)
+        deleteUpdatesByOrderId(id)
+        deleteItemsByOrderId(id)
+        deleteVersionsByOrderId(id)
     }
 }

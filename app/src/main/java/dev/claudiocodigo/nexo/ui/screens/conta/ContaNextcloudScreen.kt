@@ -160,7 +160,7 @@ fun ContaNextcloudScreen(
                 }
 
                 is ContaUiState.Validating -> {
-                    Text("Validando conexão…", modifier = Modifier.testTag("conta_validating"))
+                    Text("Salvando conta…", modifier = Modifier.testTag("conta_validating"))
                 }
 
                 is ContaUiState.Connected -> {

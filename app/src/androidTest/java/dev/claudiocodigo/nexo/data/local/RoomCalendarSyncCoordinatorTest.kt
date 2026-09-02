@@ -143,6 +143,51 @@ class RoomCalendarSetupRepositoryTest {
         assertTrue(db.calendarDao().getForAccount(old).isEmpty()); assertTrue(db.remoteEventDao().getAllForCalendar(old, cal).isEmpty())
         assertTrue(db.calendarSyncStateDao().get(old, cal) == null); assertTrue(db.serviceOrderDao().getServiceOrderById(draft) != null)
     }
+
+    @Test fun discoveryDoesNotSelectCalendarImplicitly() = runBlocking {
+        val repo = RoomCalendarSetupRepository(db, db.calendarAccountDao(), db.calendarDao(), db.remoteEventDao(), db.calendarSyncStateDao())
+        val accountId = repo.ensureAccount("https://cloud.example.test", "maria")
+        val calendars = listOf(
+            CalendarInfo("https://cloud.example.test/cal/personal/", "Pessoal", null, null, true, true, null),
+            CalendarInfo("https://cloud.example.test/cal/work/", "Trabalho", null, null, true, true, null)
+        )
+
+        repo.saveCalendars(accountId, calendars)
+
+        assertEquals(null, db.calendarDao().getSelected(accountId))
+    }
+
+    @Test fun discoveryPreservesExplicitSelectionWhileItIsStillValid() = runBlocking {
+        val repo = RoomCalendarSetupRepository(db, db.calendarAccountDao(), db.calendarDao(), db.remoteEventDao(), db.calendarSyncStateDao())
+        val accountId = repo.ensureAccount("https://cloud.example.test", "maria")
+        val selectedHref = "https://cloud.example.test/cal/work/"
+        val calendars = listOf(
+            CalendarInfo("https://cloud.example.test/cal/personal/", "Pessoal", null, null, true, true, null),
+            CalendarInfo(selectedHref, "Trabalho", null, null, true, true, null)
+        )
+        repo.saveCalendars(accountId, calendars)
+        repo.selectWorkingCalendar(accountId, selectedHref)
+
+        repo.saveCalendars(accountId, calendars.map { it.copy(description = "Atualizada") })
+
+        assertEquals(selectedHref, db.calendarDao().getSelected(accountId)?.href)
+    }
+
+    @Test fun discoveryClearsSelectionWhenSelectedCalendarNoLongerExists() = runBlocking {
+        val repo = RoomCalendarSetupRepository(db, db.calendarAccountDao(), db.calendarDao(), db.remoteEventDao(), db.calendarSyncStateDao())
+        val accountId = repo.ensureAccount("https://cloud.example.test", "maria")
+        val selectedHref = "https://cloud.example.test/cal/work/"
+        val selected = CalendarInfo(selectedHref, "Trabalho", null, null, true, true, null)
+        repo.saveCalendars(accountId, listOf(selected))
+        repo.selectWorkingCalendar(accountId, selectedHref)
+
+        repo.saveCalendars(
+            accountId,
+            listOf(CalendarInfo("https://cloud.example.test/cal/other/", "Outra", null, null, true, true, null))
+        )
+
+        assertEquals(null, db.calendarDao().getSelected(accountId))
+    }
 }
 
 private class FixedClock(private val now: Long) : ClockProvider { override fun nowMillis() = now }

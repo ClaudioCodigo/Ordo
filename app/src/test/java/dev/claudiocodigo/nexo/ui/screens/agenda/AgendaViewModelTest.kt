@@ -2,9 +2,14 @@ package dev.claudiocodigo.nexo.ui.screens.agenda
 
 import dev.claudiocodigo.nexo.domain.model.ServiceOrder
 import dev.claudiocodigo.nexo.domain.repository.ServiceOrderRepository
+import dev.claudiocodigo.nexo.domain.serviceorder.RemoteOccurrenceKey
+import dev.claudiocodigo.nexo.domain.serviceorder.ServiceOrderPreset
+import dev.claudiocodigo.nexo.domain.serviceorder.StructuredServiceOrder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -16,28 +21,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.mockito.Mock
-import org.mockito.Mockito.`when`
-import org.mockito.Mockito.verify
-import org.mockito.MockitoAnnotations
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AgendaViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-
-    @Mock
-    private lateinit var repository: ServiceOrderRepository
-
+    private lateinit var repository: FakeAgendaServiceOrderRepository
     private lateinit var viewModel: AgendaViewModel
-    private val ordersFlow = MutableStateFlow<List<ServiceOrder>>(emptyList())
 
     @Before
     fun setup() {
-        MockitoAnnotations.openMocks(this)
         Dispatchers.setMain(testDispatcher)
-        `when`(repository.getServiceOrders()).thenReturn(ordersFlow)
+        repository = FakeAgendaServiceOrderRepository()
     }
 
     @After
@@ -51,7 +47,7 @@ class AgendaViewModelTest {
             ServiceOrder(id = UUID.randomUUID(), title = "Manutenção", clientName = "A", unitName = "U1"),
             ServiceOrder(id = UUID.randomUUID(), title = "Instalação", clientName = "B", unitName = "U2")
         )
-        ordersFlow.value = orders
+        repository.ordersFlow.value = orders
 
         viewModel = AgendaViewModel(repository)
 
@@ -78,7 +74,7 @@ class AgendaViewModelTest {
             ServiceOrder(id = UUID.randomUUID(), title = "T1", clientName = "Hospital X", unitName = "U1"),
             ServiceOrder(id = UUID.randomUUID(), title = "T2", clientName = "Banco Y", unitName = "U2")
         )
-        ordersFlow.value = orders
+        repository.ordersFlow.value = orders
 
         viewModel = AgendaViewModel(repository)
         val job = launch { viewModel.uiState.collect {} }
@@ -104,7 +100,7 @@ class AgendaViewModelTest {
             ServiceOrder(id = UUID.randomUUID(), externalId = "15428", title = "Troca", clientName = "A", unitName = "U1", scheduledDate = date),
             ServiceOrder(id = UUID.randomUUID(), title = "Sem data", clientName = "B", unitName = "U2")
         )
-        ordersFlow.value = orders
+        repository.ordersFlow.value = orders
 
         viewModel = AgendaViewModel(repository)
         val job = launch { viewModel.uiState.collect {} }
@@ -128,7 +124,7 @@ class AgendaViewModelTest {
         viewModel.deleteLocalDraft(id)
         advanceUntilIdle()
 
-        verify(repository).deleteServiceOrder(id)
+        assertEquals(listOf(id), repository.deletedIds)
         assertEquals(null, viewModel.deleteError.value)
     }
 
@@ -171,5 +167,24 @@ class AgendaViewModelTest {
         assertEquals(false, state.isSyncing)
 
         job.cancel()
+    }
+
+    private class FakeAgendaServiceOrderRepository : ServiceOrderRepository {
+        val ordersFlow = MutableStateFlow<List<ServiceOrder>>(emptyList())
+        val deletedIds = mutableListOf<UUID>()
+
+        override fun getServiceOrders(): Flow<List<ServiceOrder>> = ordersFlow
+        override suspend fun getServiceOrderById(id: UUID): ServiceOrder? = ordersFlow.value.find { it.id == id }
+        override suspend fun saveServiceOrder(serviceOrder: ServiceOrder) = Unit
+        override suspend fun deleteServiceOrder(id: UUID) { deletedIds.add(id) }
+        override fun observeStructuredOrders(): Flow<List<StructuredServiceOrder>> = flowOf(emptyList())
+        override suspend fun getStructuredOrderById(id: UUID): StructuredServiceOrder? = null
+        override suspend fun saveStructuredOrder(order: StructuredServiceOrder) = Unit
+        override suspend fun createOrGetAttendance(
+            key: RemoteOccurrenceKey, initialPreset: ServiceOrderPreset, title: String,
+            clientName: String, unitName: String, rawSummary: String?, rawDescription: String?,
+            rawIcs: String?, etag: String?, startMillis: Long?, endMillis: Long?
+        ): StructuredServiceOrder = throw UnsupportedOperationException()
+        override suspend fun getLinkedOrder(key: RemoteOccurrenceKey): StructuredServiceOrder? = null
     }
 }

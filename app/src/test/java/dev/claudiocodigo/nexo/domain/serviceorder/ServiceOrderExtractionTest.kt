@@ -77,4 +77,70 @@ class ServiceOrderExtractionTest {
         assertNull(result.closureSolution)
         assertEquals(ServiceOrderPreset.SERVICO_SOLICITADO, result.preset)
     }
+
+    @Test
+    fun extractSummary_parsesFiveSegmentSummaryWithCategoryAndLocation() {
+        val raw = "PIER - 15479 - CFTV - REVISAR CÂMERAS - ARM5"
+        val result = ServiceOrderExtractor.extractSummary(raw)
+
+        assertEquals("15479", result.externalId)
+        assertEquals("PIER", result.clientName)
+        assertEquals("CFTV", result.category)
+        assertEquals("REVISAR CÂMERAS", result.title)
+        assertEquals("ARM5", result.unitName)
+    }
+
+    @Test
+    fun extractDescription_parsesReferenceIcsDescriptionFormat() {
+        val raw = """
+            OS: 15479
+            Cliente: PIER - Armazém 5
+            Técnico: Claudio
+
+            Demanda:
+            REVISAR TODAS AS CÂMERAS DO ARM 5
+
+            Estado: Concluído
+            Data de Conclusão: 31/08/2026
+
+            Causa:
+            N/A
+
+            Solução:
+            Foi realizado a revisão do funcionamento e ângulo de todas as câmeras do armazém 5.
+
+            Pendências:
+            Nenhuma
+        """.trimIndent()
+
+        val result = ServiceOrderExtractor.extractDescription(raw)
+
+        assertEquals("15479", result.externalId)
+        assertEquals("PIER", result.clientName)
+        assertEquals("Armazém 5", result.unitName)
+        assertEquals("Claudio", result.technician)
+        assertEquals("REVISAR TODAS AS CÂMERAS DO ARM 5", result.originalDemand)
+        assertEquals(ConclusionState.CONCLUIDO, result.conclusionState)
+        assertTrue(result.isCompleted)
+        assertNull(result.closureCause) // N/A should map to null
+        assertTrue(result.closureSolution!!.startsWith("Foi realizado a revisão"))
+        assertEquals("Nenhuma", result.closurePending)
+    }
+
+    @Test
+    fun extractDescription_nonCompletedStateIsNotMarkedCompleted() {
+        val result = ServiceOrderExtractor.extractDescription(
+            """
+                OS: 15480
+
+                Demanda:
+                Retornar ao local com a peça correta.
+
+                Estado: Não concluído
+            """.trimIndent()
+        )
+
+        assertEquals(ConclusionState.NAO_CONCLUIDO, result.conclusionState)
+        assertEquals(false, result.isCompleted)
+    }
 }

@@ -33,15 +33,21 @@ sealed interface ConflictUiState {
         val remotePending: String?,
         val remoteRawSummary: String?,
         val remoteRawDescription: String?,
-        val remoteRawIcs: String?
+        val remoteRawIcs: String?,
+        val remoteClientName: String? = null,
+        val remoteUnitName: String? = null,
+        val remoteTechnician: String? = null,
+        val remoteCategory: String? = null
     ) : ConflictUiState
+    data class DeletedRemotely(val orderId: UUID, val isDraft: Boolean) : ConflictUiState
     data class Error(val message: String) : ConflictUiState
 }
 
 @HiltViewModel
 class ConflictReviewViewModel @Inject constructor(
     private val serviceOrderRepository: ServiceOrderRepository,
-    private val calendarRepository: CalendarRepository
+    private val calendarRepository: CalendarRepository,
+    private val publicationRepository: dev.claudiocodigo.nexo.domain.publication.PublicationRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<ConflictUiState>(ConflictUiState.Loading)
@@ -60,7 +66,10 @@ class ConflictReviewViewModel @Inject constructor(
                 calendarRepository.getEvent(key.accountId, key.calendarHref, key.eventHref)
             } else null
             if (remoteEvent == null) {
-                _uiState.value = ConflictUiState.Error("Evento remoto atualizado não encontrado no cache")
+                _uiState.value = ConflictUiState.DeletedRemotely(
+                    orderId = orderId,
+                    isDraft = local.publicationState == dev.claudiocodigo.nexo.domain.serviceorder.PublicationState.LOCAL_DRAFT
+                )
                 return@launch
             }
 
@@ -106,7 +115,11 @@ class ConflictReviewViewModel @Inject constructor(
                 remotePending = remoteDescExtracted.closurePending,
                 remoteRawSummary = remoteEvent?.summary,
                 remoteRawDescription = remoteEvent?.description,
-                remoteRawIcs = remoteEvent?.rawIcs
+                remoteRawIcs = remoteEvent?.rawIcs,
+                remoteClientName = remoteSummaryExtracted.clientName,
+                remoteUnitName = remoteSummaryExtracted.unitName,
+                remoteTechnician = remoteSummaryExtracted.technician,
+                remoteCategory = remoteSummaryExtracted.category
             )
         }
     }
@@ -134,10 +147,38 @@ class ConflictReviewViewModel @Inject constructor(
                 newEtag = ready.remoteEtag,
                 remoteRawSummary = ready.remoteRawSummary,
                 remoteRawDescription = ready.remoteRawDescription,
-                remoteRawIcs = ready.remoteRawIcs
+                remoteRawIcs = ready.remoteRawIcs,
+                remoteClientName = ready.remoteClientName,
+                remoteUnitName = ready.remoteUnitName,
+                remoteTechnician = ready.remoteTechnician,
+                remoteCategory = ready.remoteCategory
             )
 
             serviceOrderRepository.saveStructuredOrder(resolved)
+            onResolved()
+        }
+    }
+
+    fun recreateLocally(onResolved: () -> Unit) {
+        val deleted = _uiState.value as? ConflictUiState.DeletedRemotely ?: return
+        viewModelScope.launch {
+            val order = serviceOrderRepository.getStructuredOrderById(deleted.orderId) ?: return@launch
+            // Clear base snapshot and etag so it behaves like a new unsynced order
+            val recreated = order.copy(
+                baseSnapshot = null,
+                occurrenceKey = null,
+                publicationState = dev.claudiocodigo.nexo.domain.serviceorder.PublicationState.LOCAL_DRAFT
+            )
+            serviceOrderRepository.saveStructuredOrder(recreated)
+            onResolved()
+        }
+    }
+
+    fun discardLocally(onResolved: () -> Unit) {
+        val deleted = _uiState.value as? ConflictUiState.DeletedRemotely ?: return
+        viewModelScope.launch {
+            publicationRepository.cancelAllForOrder(deleted.orderId)
+            serviceOrderRepository.deleteServiceOrder(deleted.orderId)
             onResolved()
         }
     }

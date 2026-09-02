@@ -93,49 +93,39 @@ class RoomPublicationCoordinator @Inject constructor(
             is WriteOutcome.Created -> {
                 publicationRepository.markSent(op.id, writeOutcome.etag, now)
                 order?.let {
-                    val selectedCalendar = calendarSetupRepository.observeSelectedCalendar().first()
-                    val accountId = calendarSetupRepository.getActiveAccountId()
-                    val parsed = IcsParser.parse(op.payloadIcs).events.firstOrNull()
-                    serviceOrderRepository.saveStructuredOrder(
-                        it.copy(
-                            occurrenceKey = if (selectedCalendar != null && accountId != null) {
-                                RemoteOccurrenceKey(accountId, selectedCalendar.href, writeOutcome.href)
-                            } else it.occurrenceKey,
-                            baseSnapshot = RemoteBaseSnapshot(
-                                etag = writeOutcome.etag,
-                                rawIcs = op.payloadIcs,
-                                rawSummary = parsed?.summary,
-                                rawDescription = parsed?.description,
-                                capturedAt = now
-                            ),
-                            publicationState = PublicationState.PUBLISHED
+                    if (if (op.action == OutboxAction.UPDATE) it.updateDraftRevision == op.confirmedRevision else it.draftRevision == op.confirmedRevision) {
+                        val selectedCalendar = calendarSetupRepository.observeSelectedCalendar().first()
+                        val accountId = calendarSetupRepository.getActiveAccountId()
+                        val parsed = IcsParser.parse(op.payloadIcs).events.firstOrNull()
+                        serviceOrderRepository.saveStructuredOrder(
+                            it.copy(
+                                occurrenceKey = if (selectedCalendar != null && accountId != null) RemoteOccurrenceKey(accountId, selectedCalendar.href, writeOutcome.href) else it.occurrenceKey,
+                                baseSnapshot = RemoteBaseSnapshot(etag = writeOutcome.etag, rawIcs = op.payloadIcs, rawSummary = parsed?.summary, rawDescription = parsed?.description, capturedAt = now),
+                                publicationState = PublicationState.PUBLISHED,
+                                updateDraft = null,
+                                updateDraftRevision = 0L
+                            )
                         )
-                    )
+                    }
                 }
                 DrainOutcome.Success(op.id, writeOutcome.etag)
             }
             is WriteOutcome.Updated -> {
                 publicationRepository.markSent(op.id, writeOutcome.etag, now)
                 order?.let {
-                    val parsed = IcsParser.parse(op.payloadIcs).events.firstOrNull()
-                    serviceOrderRepository.saveStructuredOrder(
-                        it.copy(
-                            baseSnapshot = (it.baseSnapshot ?: RemoteBaseSnapshot(
-                                etag = writeOutcome.etag,
-                                rawIcs = op.payloadIcs,
-                                rawSummary = parsed?.summary,
-                                rawDescription = parsed?.description,
-                                capturedAt = now
-                            )).copy(
-                                etag = writeOutcome.etag,
-                                rawIcs = op.payloadIcs,
-                                rawSummary = parsed?.summary,
-                                rawDescription = parsed?.description,
-                                capturedAt = now
-                            ),
-                            publicationState = PublicationState.PUBLISHED
+                    if (if (op.action == OutboxAction.UPDATE) it.updateDraftRevision == op.confirmedRevision else it.draftRevision == op.confirmedRevision) {
+                        val parsed = IcsParser.parse(op.payloadIcs).events.firstOrNull()
+                        serviceOrderRepository.saveStructuredOrder(
+                            it.copy(
+                                baseSnapshot = (it.baseSnapshot ?: RemoteBaseSnapshot(etag = writeOutcome.etag, rawIcs = op.payloadIcs, rawSummary = parsed?.summary, rawDescription = parsed?.description, capturedAt = now)).copy(
+                                    etag = writeOutcome.etag, rawIcs = op.payloadIcs, rawSummary = it.baseSnapshot?.rawSummary ?: parsed?.summary, rawDescription = parsed?.description, capturedAt = now
+                                ),
+                                publicationState = PublicationState.PUBLISHED,
+                                updateDraft = null,
+                                updateDraftRevision = 0L
+                            )
                         )
-                    )
+                    }
                 }
                 DrainOutcome.Success(op.id, writeOutcome.etag)
             }
